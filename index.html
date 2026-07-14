@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>BLEEDTHROUGH — a notebook roguelike</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Kalam:wght@300;400;700&family=Special+Elite&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ============ TITLE ============ -->
+  <section class="screen active" id="screen-title">
+    <div class="title-page">
+      <div class="title-doodles">✗ ○ ✗<br>○ ✗ ○</div>
+      <h1 class="logo">BLEED<span>THROUGH</span></h1>
+      <p class="tagline">tic-tac-toe, but the rules are written in pencil<br>and the page has two sides.</p>
+      <button class="btn big" id="btn-new-run">▶ new run</button>
+      <p class="title-tip">draw 1 · play 1 · place your marks · circle your lines<br>lose the front of the page? flip it. the ink remembers.</p>
+      <p class="title-credit">a notebook roguelike · prototype 0.1</p>
+    </div>
+  </section>
+
+  <!-- ============ MATCH ============ -->
+  <section class="screen" id="screen-match">
+    <header id="enemy-panel">
+      <div class="enemy-row">
+        <span id="enemy-name">The Inkfiend</span>
+        <span id="enemy-trinkets"></span>
+      </div>
+      <div class="meter" id="meter-enemy"><div class="fill"></div></div>
+      <div class="score-row">
+        <span id="intent-note"></span>
+        <span class="scorebox sb-e"><b id="score-e">0</b> ink</span>
+      </div>
+    </header>
+
+    <div id="rules-row"></div>
+
+    <div id="page">
+      <div class="page-holes"></div>
+      <div id="side-label">· page 1, front ·</div>
+      <div id="board-wrap">
+        <div id="board"></div>
+        <svg id="overlay" preserveAspectRatio="none"></svg>
+      </div>
+      <div id="target-label" class="target-label"></div>
+    </div>
+
+    <footer id="player-panel">
+      <div class="score-row">
+        <span class="scorebox sb-p"><b id="score-p">0</b> ink</span>
+        <span id="turn-hint"></span>
+        <span class="footer-btns">
+          <button class="btn tiny" id="btn-cancel">✕</button>
+          <button class="btn tiny" id="btn-peek" title="hold: peek through the paper">👁</button>
+          <button class="btn tiny" id="btn-help">?</button>
+        </span>
+      </div>
+      <div class="meter" id="meter-player"><div class="fill"></div></div>
+      <div id="player-trinkets"></div>
+      <div id="hand"></div>
+    </footer>
+  </section>
+
+  <!-- ============ DRAFT ============ -->
+  <section class="screen" id="screen-draft">
+    <div class="draft-page">
+      <h2 id="draft-title"></h2>
+      <p id="draft-sub"></p>
+      <div id="draft-cards"></div>
+    </div>
+  </section>
+
+  <!-- ============ RESULT ============ -->
+  <section class="screen" id="screen-result">
+    <div class="result-page">
+      <h2 id="result-title"></h2>
+      <p id="result-score" class="result-score"></p>
+      <p id="result-body"></p>
+      <button class="btn big" id="btn-flip-anyway">↻ flip the page anyway</button>
+      <button class="btn big" id="btn-again">▶ back to the cover</button>
+    </div>
+  </section>
+
+  <div id="card-focus"></div>
+  <div id="toast-holder"></div>
+  <div id="modal"><div id="modal-body"></div></div>
+</div>
+
+<script src="js/engine.js"></script>
+<script src="js/cards.js"></script>
+<script src="js/enemy.js"></script>
+<script src="js/flipside.js"></script>
+<script src="js/render.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
