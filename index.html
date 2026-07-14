@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>BLEEDTHROUGH — a notebook roguelike</title>
+<title>BLEEDTHROUGH — a school-day tic-tac-toe roguelike</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Kalam:wght@300;400;700&family=Special+Elite&display=swap" rel="stylesheet">
@@ -14,89 +14,143 @@
 <body>
 <div id="app">
 
-  <!-- ============ TITLE ============ -->
+  <!-- ============ TITLE / UTENSIL PICK ============ -->
   <section class="screen active" id="screen-title">
     <div class="title-page">
       <div class="title-doodles">✗ ○ ✗<br>○ ✗ ○</div>
       <h1 class="logo">BLEED<span>THROUGH</span></h1>
-      <p class="tagline">tic-tac-toe, but the rules are written in pencil<br>and the page has two sides.</p>
-      <button class="btn big" id="btn-new-run">▶ new run</button>
-      <p class="title-tip">draw 1 · play 1 · place your marks · circle your lines<br>lose the front of the page? flip it. the ink remembers.</p>
-      <p class="title-credit">a notebook roguelike · prototype 0.1</p>
+      <p class="tagline">a school-day tic-tac-toe roguelike.<br>every class is a notebook. every notebook ends in a boss.<br>candy is your life. spend it wisely. in a bathroom.</p>
+      <p class="pick-label">— choose your writing utensil —</p>
+      <div class="utensil-row">
+        <div class="utensil-pick" data-u="pencil">
+          <div class="u-icon">✏️</div>
+          <div class="u-name">The Pencil</div>
+          <div class="u-text">Each turn: draw an X <b>or</b> erase an O (leaves a 2-turn smudge).</div>
+          <div class="u-flavor">Flexible. Forgiving. A little smudgy.</div>
+        </div>
+        <div class="utensil-pick" data-u="pen">
+          <div class="u-icon">🖋</div>
+          <div class="u-name">The Pen</div>
+          <div class="u-text">Draw X's only — but when you win a page, your final X <b>bleeds through</b> to the next one.</div>
+          <div class="u-flavor">Permanent. Confident. No takebacks.</div>
+        </div>
+      </div>
+      <p class="title-credit">prototype 0.2 · the school day</p>
+    </div>
+  </section>
+
+  <!-- ============ CLASS COVER ============ -->
+  <section class="screen" id="screen-cover">
+    <div class="cover-page">
+      <div id="cover-period" class="cover-period"></div>
+      <h2 id="cover-subject" class="cover-subject"></h2>
+      <div id="cover-page" class="cover-pageno"></div>
+      <div id="cover-vs" class="cover-vs"></div>
+      <p id="cover-dialogue" class="cover-dialogue"></p>
+      <div class="candy-row"></div>
+      <button class="btn big" id="btn-start-page">▶ turn the page</button>
+      <button class="btn" id="btn-bathroom">🚽 “I… gotta go to the bathroom.”</button>
     </div>
   </section>
 
   <!-- ============ MATCH ============ -->
   <section class="screen" id="screen-match">
-    <header id="enemy-panel">
-      <div class="enemy-row">
-        <span id="enemy-name">The Inkfiend</span>
-        <span id="enemy-trinkets"></span>
+    <header id="match-head">
+      <div class="head-row">
+        <span id="student-name"></span>
+        <span id="subject-tag"></span>
       </div>
-      <div class="meter" id="meter-enemy"><div class="fill"></div></div>
-      <div class="score-row">
-        <span id="intent-note"></span>
-        <span class="scorebox sb-e"><b id="score-e">0</b> ink</span>
+      <div id="student-bubble" class="bubble"></div>
+      <div class="head-row2">
+        <span id="page-label"></span>
+        <span id="page-dots"></span>
       </div>
     </header>
 
-    <div id="rules-row"></div>
-
     <div id="page">
       <div class="page-holes"></div>
-      <div id="side-label">· page 1, front ·</div>
       <div id="board-wrap">
         <div id="board"></div>
         <svg id="overlay" preserveAspectRatio="none"></svg>
       </div>
-      <div id="target-label" class="target-label"></div>
     </div>
 
     <footer id="player-panel">
-      <div class="score-row">
-        <span class="scorebox sb-p"><b id="score-p">0</b> ink</span>
-        <span id="turn-hint"></span>
-        <span class="footer-btns">
-          <button class="btn tiny" id="btn-cancel">✕</button>
-          <button class="btn tiny" id="btn-peek" title="hold: peek through the paper">👁</button>
-          <button class="btn tiny" id="btn-help">?</button>
-        </span>
+      <div id="turn-hint"></div>
+      <div class="panel-row">
+        <div id="utensil-bar"></div>
+        <div class="candy-row"></div>
       </div>
-      <div class="meter" id="meter-player"><div class="fill"></div></div>
-      <div id="player-trinkets"></div>
-      <div id="hand"></div>
+      <div id="sticker-row"></div>
     </footer>
-  </section>
 
-  <!-- ============ DRAFT ============ -->
-  <section class="screen" id="screen-draft">
-    <div class="draft-page">
-      <h2 id="draft-title"></h2>
-      <p id="draft-sub"></p>
-      <div id="draft-cards"></div>
+    <div id="result-overlay">
+      <div class="result-card">
+        <h2 id="result-title2"></h2>
+        <p id="result-body2"></p>
+        <button class="btn big" id="btn-continue">▶ continue</button>
+      </div>
     </div>
   </section>
 
-  <!-- ============ RESULT ============ -->
-  <section class="screen" id="screen-result">
-    <div class="result-page">
-      <h2 id="result-title"></h2>
-      <p id="result-score" class="result-score"></p>
-      <p id="result-body"></p>
-      <button class="btn big" id="btn-flip-anyway">↻ flip the page anyway</button>
-      <button class="btn big" id="btn-again">▶ back to the cover</button>
+  <!-- ============ BOSS TRANSFORM ============ -->
+  <section class="screen" id="screen-transform">
+    <div class="transform-page">
+      <div class="transform-flash">⚡</div>
+      <h2 id="transform-title"></h2>
+      <div id="transform-body"></div>
+      <button class="btn big" id="btn-face-boss">⚔ face them</button>
     </div>
   </section>
 
-  <div id="card-focus"></div>
+  <!-- ============ BATHROOM SHOP ============ -->
+  <section class="screen" id="screen-bathroom">
+    <div class="stall">
+      <div class="stall-graffiti">for a good time, study</div>
+      <h2 class="stall-title">🚽 THE STALL</h2>
+      <p class="stall-npc">Sticky-Fingers Eddie</p>
+      <p id="eddie-line" class="eddie-line"></p>
+      <div id="shop-candy" class="shop-candy"></div>
+      <div id="shop-items"></div>
+      <p class="stall-rules">one purchase per visit · one visit per class · never spend your last candy</p>
+      <button class="btn big" id="btn-leave-shop">← back to class</button>
+    </div>
+  </section>
+
+  <!-- ============ REWARD ============ -->
+  <section class="screen" id="screen-reward">
+    <div class="cover-page">
+      <h2 class="reward-title">👑 CLASS DISMISSED</h2>
+      <p id="reward-sub"></p>
+      <div id="reward-cards"></div>
+    </div>
+  </section>
+
+  <!-- ============ GAME OVER / VICTORY ============ -->
+  <section class="screen" id="screen-gameover">
+    <div class="cover-page dark">
+      <h2 class="reward-title">☠ OUT OF CANDY</h2>
+      <p id="gameover-body"></p>
+      <button class="btn big" id="btn-again-1">▶ new school day</button>
+    </div>
+  </section>
+
+  <section class="screen" id="screen-victory">
+    <div class="cover-page">
+      <h2 class="reward-title">🔔 FINAL BELL</h2>
+      <p>You survived every class on the schedule. The hallway empties. Somewhere, Eddie restocks.<br><br><i>More periods coming soon.</i></p>
+      <button class="btn big" id="btn-again-2">▶ new school day</button>
+    </div>
+  </section>
+
   <div id="toast-holder"></div>
-  <div id="modal"><div id="modal-body"></div></div>
 </div>
 
 <script src="js/engine.js"></script>
-<script src="js/cards.js"></script>
-<script src="js/enemy.js"></script>
-<script src="js/flipside.js"></script>
+<script src="js/subjects.js"></script>
+<script src="js/run.js"></script>
+<script src="js/stickers.js"></script>
+<script src="js/ai.js"></script>
 <script src="js/render.js"></script>
 <script src="js/main.js"></script>
 </body>

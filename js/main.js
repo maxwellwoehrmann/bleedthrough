@@ -1,519 +1,447 @@
 /* ============================================================
-   BLEEDTHROUGH — main.js
-   Game flow: run -> front match -> (draft) -> flipside -> result.
-   Owns the interaction state machine and wires the DOM events.
+   BLEEDTHROUGH v0.2 — main.js
+   The school day: title -> pick utensil -> class cover -> pages
+   -> boss transform -> reward -> next period. Candy is life.
    ============================================================ */
 
 (function () {
 
   var $ = function (sel) { return document.querySelector(sel); };
 
-  var App = {
-    run: null,   // { deckIds, seed }
-    G: null,     // current match
-    foe: null,
-    front: null, // finished front match (for flipside build)
-    ui: null,
-  };
+  var App = { run: null, G: null, st: null, ui: null };
 
   function freshUi() {
     return {
-      mode: 'idle', selectedCard: -1,
-      highlight: new Set(), preview: new Set(),
-      pending: null,       // {k, id, stage} while targeting
-      anchor: null,
-      freeCells: [], freeLeft: 0,
-      placementsDone: 0,
+      utensilMode: 'draw',
+      stickerArmed: -1, stickerTargets: [],
+      canUseSticker: true,
+      placesLeft: 1,
+      highlight: new Set(),
+      peekCell: -1,
+      busy: false,
     };
   }
 
-  function redraw() { Render.match(App.G, App.ui, App.foe); }
-  function fx() { Render.drainFx(App.G, App.foe); }
+  function subj() { return Run.subject(App.run); }
+  function say(key, opts) {
+    var d = subj().dialogue[key];
+    Render.bubble(Subjects.line(App.run.rng, d), opts);
+  }
+  function foeName() {
+    return Run.isBossPage(App.run) ? subj().boss : subj().student;
+  }
+  function redraw() { Render.match(App.G, App.ui, App.run, foeName()); }
 
-  // ================= run / match setup =================
-  function startRun() {
-    App.run = { deckIds: Cards.STARTER_DECK.slice(), seed: (Date.now() % 100000) | 0 };
-    startFront();
+  // ================= run / page setup =================
+  function startRun(utensil) {
+    App.run = Run.newRun(utensil, (Date.now() % 1000000) | 0);
+    showCover('intro');
   }
 
-  function startFront() {
-    var G = Engine.newMatch({ seed: App.run.seed, target: 40, deck: App.run.deckIds.slice() });
-    Engine.scatterTerrain(G);
-    Engine.shuffle(G, G.deck);
+  function showCover(kind) {
+    var run = App.run;
+    var s = subj();
+    $('#cover-period').textContent = Run.periodName(run);
+    $('#cover-subject').textContent = s.periodEmoji + ' ' + s.title.toUpperCase();
+    $('#cover-page').textContent = Run.isBossPage(run)
+      ? 'FINAL PAGE — ' + run.page + '/' + run.pagesPerNotebook
+      : 'page ' + run.page + ' of ' + run.pagesPerNotebook;
+    var d = s.dialogue[kind === 'intro' && run.page === 1 ? 'intro' : kind === 'retry' ? 'retry' : 'pageStart'];
+    $('#cover-dialogue').textContent = Subjects.line(run.rng, d);
+    $('#cover-vs').textContent = 'vs ' + (Run.isBossPage(run) ? s.student + '… probably' : s.student);
+    $('#btn-start-page').textContent = Run.isBossPage(run) ? '▶ turn to the final page' : '▶ turn the page';
+    $('#btn-bathroom').style.display = run.bathroomUsed ? 'none' : '';
+    Render.drawCandy(run);
+    Render.showScreen('screen-cover');
+  }
+
+  function startPage() {
+    var run = App.run;
+    if (Run.isBossPage(run) && !run._transformed) {
+      run._transformed = true;
+      return showTransform();
+    }
+    var G = Engine.newPage({
+      size: Run.boardSize(run),
+      rng: run.rng,
+      firstTurn: Run.isBossPage(run) ? 'E' : 'P',
+    });
+    G.playerGapLines = Run.gapLines(run);
     App.G = G;
-    App.foe = Enemy.makeInkfiend('front');
-    App.front = null;
+    App.st = AI.newState(run);
     App.ui = freshUi();
-    Engine.draw(G, 4);
-    beginPlayerTurn(true);
+
+    // pen bleedthrough from the previous page
+    if (run.bleedCell && Run.bleeds(run)) {
+      Engine.place(G, 'P', run.bleedCell.r, run.bleedCell.c, { bled: true });
+      Render.toast('🖋 Your X bled through from the last page.');
+    }
+    run.bleedCell = null;
+
     Render.showScreen('screen-match');
+    $('#result-overlay').classList.remove('show');
     redraw();
+    if (Run.isBossPage(run)) {
+      say('bossIntro');
+      App.ui.busy = true;
+      setTimeout(enemyTurn, 1400);
+    } else {
+      say(run.page === 1 ? 'intro' : 'pageStart');
+      playerTurnStart();
+    }
   }
 
-  function startFlipside() {
-    var F = Flipside.build(App.front, { deck: App.run.deckIds.slice(), target: 30 });
-    App.G = F;
-    App.foe = Enemy.makeInkfiend('flip');
-    App.ui = freshUi();
-    Engine.draw(F, 4);
-    var copies = Flipside.applyCarbonPaper(F);
-    if (copies.length) {
-      Render.toast('Carbon Paper: copied ' + copies.map(function (id) { return Cards.DB[id].name; }).join(' + ') + ' into your hand.');
-    }
-    beginPlayerTurn(true);
-    var page = $('#page');
-    page.classList.add('flipping');
-    setTimeout(function () { page.classList.remove('flipping'); }, 900);
-    Render.showScreen('screen-match');
-    redraw();
-    Render.toast('The page turns. The ink remembers.');
+  function showTransform() {
+    var s = subj();
+    $('#transform-title').textContent = s.bossTitle;
+    $('#transform-body').innerHTML = s.dialogue.transform.map(function (t) { return '<p>' + t + '</p>'; }).join('');
+    Render.showScreen('screen-transform');
   }
 
-  // ================= turn loop =================
-  function beginPlayerTurn(first) {
-    var G = App.G;
-    if (G.over) return finishMatch();
-    if (!Engine.fitShape(G, { kind: 'line', len: 1 })) {
-      Engine.checkJam(G);
-      return finishMatch();
-    }
-    var drawn = Engine.startPlayerTurn(G);
-    if (!first && drawn.length) {
-      Render.toast('drew: ' + drawn.map(function (id) { return Cards.DB[id].name; }).join(', '));
-    }
-    G.pressHardThisTurn = false;
-    App.ui = freshUi();
+  // ================= turns =================
+  function playerTurnStart() {
+    var ui = App.ui;
+    ui.busy = false;
+    ui.canUseSticker = true;
+    ui.placesLeft = 1;
+    ui.stickerArmed = -1;
+    ui.stickerTargets = [];
+    ui.highlight = new Set();
+    updatePeek();
+    redraw();
+    hintNow();
   }
 
-  function endPlayerTurn() {
-    var G = App.G;
-    G.pressHardThisTurn = false;
-    G.placement.P = null;
-    Engine.checkJam(G);
-    if (G.over) return finishMatch();
-    App.ui.mode = 'enemy';
+  function hintNow() {
+    var ui = App.ui;
+    if (App.G.over) { Render.hint(''); return; }
+    if (ui.stickerArmed >= 0) {
+      var st = Stickers.DB[App.run.stickers[ui.stickerArmed]];
+      Render.hint(st.target === 'enemyO2'
+        ? 'tap ' + (2 - ui.stickerTargets.length) + ' O\'s to erase (tap the note again to cancel)'
+        : 'tap a target (tap the note again to cancel)');
+      return;
+    }
+    if (ui.placesLeft > 1) { Render.hint('two-fer! place ' + ui.placesLeft + ' X\'s'); return; }
+    if (App.G.marginUnlocks > 0) { Render.hint('margin unlocked — the outside squares glow'); return; }
+    Render.hint(App.ui.utensilMode === 'erase' ? 'tap an O to erase it (leaves a 2-turn smudge)' : 'tap a square to place your X');
+  }
+
+  function updatePeek() {
+    var G = App.G, ui = App.ui;
+    ui.peekCell = -1;
+    if (G.peek && !G.over) {
+      var cell = AI.predict(G, App.st);
+      if (cell) ui.peekCell = Engine.idx(G, cell.r, cell.c);
+    }
+  }
+
+  function absorbExtras() {
+    if (App.G.extraPlaces > 0) {
+      App.ui.placesLeft += App.G.extraPlaces;
+      App.G.extraPlaces = 0;
+    }
+  }
+
+  function handleCellTap(i) {
+    var G = App.G, ui = App.ui, run = App.run;
+    if (G.over || ui.busy) return;
+    var cell = G.cells[i];
+
+    // sticker targeting
+    if (ui.stickerArmed >= 0) {
+      var stk = Stickers.DB[run.stickers[ui.stickerArmed]];
+      if (stk.target === 'empty') {
+        if (cell.margin || cell.mark || cell.smudge > 0) return;
+        stk.effect(G, { r: cell.r, c: cell.c });
+        consumeSticker();
+      } else if (stk.target === 'enemyO') {
+        if (cell.mark !== 'O') return;
+        stk.effect(G, { r: cell.r, c: cell.c });
+        consumeSticker();
+      } else if (stk.target === 'enemyO2') {
+        if (cell.mark !== 'O') return;
+        ui.stickerTargets.push({ r: cell.r, c: cell.c });
+        if (ui.stickerTargets.length >= 2 || countOs(G) <= ui.stickerTargets.length) {
+          stk.effect(G, { targets: ui.stickerTargets });
+          consumeSticker();
+        } else { redraw(); hintNow(); }
+      }
+      return;
+    }
+
+    // erase mode (pencil / erasable pen): erasing IS your turn
+    if (ui.utensilMode === 'erase') {
+      if (cell.mark !== 'O') return;
+      Engine.eraseO(G, cell.r, cell.c, 2);
+      Render.toast('🧼 Erased. The smudge lasts 2 turns.');
+      afterPlayerAction(true);
+      return;
+    }
+
+    // place an X
+    if (!Engine.canPlace(G, 'P', cell)) return;
+    Engine.place(G, 'P', cell.r, cell.c);
+    afterPlayerAction(false);
+  }
+
+  function countOs(G) {
+    return G.cells.filter(function (cl) { return cl.mark === 'O'; }).length;
+  }
+
+  function afterPlayerAction(wasErase) {
+    var G = App.G, ui = App.ui;
+    absorbExtras();
+    var win = Engine.findWin(G, 'P', G.playerGapLines);
+    if (win) return pageOver('win', win);
+
+    ui.placesLeft--;
+    if (!wasErase && ui.placesLeft > 0) { redraw(); hintNow(); return; }
+
+    Engine.tickAfter(G, 'P');
+    if (boardJammed(G)) return pageOver('draw', null);
+    ui.busy = true;
     redraw();
-    setTimeout(enemyTurn, 700);
+    Render.hint(foeName() + ' is thinking…');
+    setTimeout(enemyTurn, 750);
+  }
+
+  function boardJammed(G) {
+    return !Engine.innerCells(G).some(function (cl) { return !cl.mark && cl.smudge === 0; });
   }
 
   function enemyTurn() {
-    var G = App.G;
-    var summary = Enemy.takeTurn(G, App.foe);
-    Render.toast(App.foe.name + ': ' + summary.action.name + (summary.action.surprise ? '!!' : ''));
-    fx();
-    redraw();
-    if (G.over) return setTimeout(finishMatch, 900);
-    setTimeout(function () {
-      beginPlayerTurn(false);
-      redraw();
-    }, 650);
-  }
-
-  // ================= playing cards =================
-  function selectCard(k) {
-    var ui = App.ui;
-    if (ui.mode !== 'idle') return;
-    ui.selectedCard = (ui.selectedCard === k) ? -1 : k;
-    redraw();
-  }
-
-  function tryPlayCard(k) {
-    var G = App.G, ui = App.ui;
-    if (G.over || G.turn !== 'P' || ui.mode !== 'idle') return;
-    var id = G.hand[k];
-    var card = Cards.DB[id];
-    if (!card) return;
-    if (card.type !== 'margin' && G.playsLeft <= 0) {
-      Render.toast('No plays left this turn. (Margin cards are still free.)');
-      redraw();
-      return;
-    }
-    if (!card.target) {
-      commitCard(k, id, {});
-      return;
-    }
-    // targeting needed
-    if (card.target === 'steal') {
-      if (!G.trinkets.E.length) { Render.toast('The Inkfiend has nothing worth stealing. Yet.'); redraw(); return; }
-      openStealModal(k, id);
-      return;
-    }
-    ui.pending = { k: k, id: id, stage: 1 };
-    ui.selectedCard = -1;
-    if (card.target === 'empty-cell') {
-      ui.mode = 'target-cell';
-      ui.highlight = collectCells(function (cell) { return Engine.placeable(cell); });
-    } else if (card.target === 'enemy-mark') {
-      ui.mode = 'target-cell';
-      ui.highlight = collectCells(function (cell) { return cell.mark === 'E' && !Engine.isCircled(cell); });
-      if (!ui.highlight.size) { Render.toast('No erasable enemy ink on the page.'); cancelTargeting(); return; }
-    } else if (card.target === 'area-3x3') {
-      ui.mode = 'target-cell';
-      ui.highlight = collectCells(function () { return true; });
-    } else if (card.target === 'strip-erase') {
-      ui.mode = 'target-cell';
-      ui.highlight = collectCells(function (cell) {
-        return (cell.mark && !Engine.isCircled(cell)) || cell.smudge;
-      });
-      if (!ui.highlight.size) { Render.toast('Nothing on the page to white-out.'); cancelTargeting(); return; }
-    }
-    redraw();
-  }
-
-  function collectCells(pred) {
-    var s = new Set();
-    App.G.cells.forEach(function (cell, i) { if (pred(cell, i)) s.add(i); });
-    return s;
-  }
-
-  function commitCard(k, id, ctx) {
-    var G = App.G;
-    var card = Cards.DB[id];
-    G.hand.splice(k, 1);
-    if (card.type !== 'margin') G.playsLeft--;
-    if (card.type === 'active' || card.type === 'margin') {
-      G.discard.push(id);
-      if (G.side === 'front') G.playedActivesFront.push(id);
-    }
-    card.effect(G, ctx);
-    cancelTargeting(true);
-    fx();
-    if (G.over) return finishMatch();
-    redraw();
-  }
-
-  function cancelTargeting(silent) {
-    var ui = App.ui;
-    ui.mode = 'idle';
-    ui.pending = null;
-    ui.anchor = null;
-    ui.highlight = new Set();
-    ui.preview = new Set();
-    if (!silent) redraw();
-  }
-
-  function handleTargetTap(i) {
-    var G = App.G, ui = App.ui;
-    var card = Cards.DB[ui.pending.id];
-
-    if (card.target === 'empty-cell' || card.target === 'enemy-mark') {
-      if (!ui.highlight.has(i)) return;
-      commitCard(ui.pending.k, ui.pending.id, { cellIdx: i });
-      return;
-    }
-    if (card.target === 'area-3x3') {
-      var r = Math.floor(i / G.size), c = i % G.size;
-      r = Math.max(1, Math.min(G.size - 2, r));
-      c = Math.max(1, Math.min(G.size - 2, c));
-      var cells = [];
-      for (var dr = -1; dr <= 1; dr++) for (var dc = -1; dc <= 1; dc++) {
-        cells.push(Engine.idx(G, r + dr, c + dc));
-      }
-      commitCard(ui.pending.k, ui.pending.id, { cellIdxs: cells });
-      return;
-    }
-    if (card.target === 'strip-erase') {
-      if (ui.pending.stage === 1) {
-        if (!ui.highlight.has(i)) return;
-        ui.anchor = i;
-        ui.pending.stage = 2;
-        ui.mode = 'target-strip';
-        // endpoints: straight cells within distance 2 (or the anchor itself for single)
-        var hi = new Set([i]);
-        var r0 = Math.floor(i / G.size), c0 = i % G.size;
-        Engine.ALL_DIRS8.forEach(function (d) {
-          for (var step = 1; step <= 2; step++) {
-            var rr = r0 + d.dr * step, cc = c0 + d.dc * step;
-            if (Engine.inBounds(G, rr, cc)) hi.add(Engine.idx(G, rr, cc));
-          }
-        });
-        ui.highlight = hi;
-        redraw();
-      } else {
-        if (!ui.highlight.has(i)) return;
-        var cellsIdxs = stripBetween(G, ui.anchor, i);
-        commitCard(ui.pending.k, ui.pending.id, { cellIdxs: cellsIdxs });
-      }
-    }
-  }
-
-  function stripBetween(G, a, b) {
-    var r0 = Math.floor(a / G.size), c0 = a % G.size;
-    var r1 = Math.floor(b / G.size), c1 = b % G.size;
-    var dr = Math.sign(r1 - r0), dc = Math.sign(c1 - c0);
-    var out = [a];
-    var r = r0, c = c0;
-    var guard = 0;
-    while ((r !== r1 || c !== c1) && guard++ < 8) {
-      r += dr; c += dc;
-      out.push(Engine.idx(G, r, c));
-    }
-    return out;
-  }
-
-  // ================= placement =================
-  function handleCellTap(i) {
-    var G = App.G, ui = App.ui;
-    if (G.over || G.turn !== 'P') return;
-
-    if (ui.mode === 'target-cell' || ui.mode === 'target-strip') return handleTargetTap(i);
-    if (ui.mode === 'enemy') return;
-
-    if (ui.mode === 'place-endpoint') {
-      if (i === ui.anchor) { cancelTargeting(); return; }
-      if (!ui.highlight.has(i)) return;
-      var cells = lineFromAnchor(G, ui.anchor, i);
-      if (cells) doPlacement(cells);
-      return;
-    }
-
-    if (ui.mode === 'place-free') {
-      if (!Engine.placeable(G.cells[i]) || ui.freeCells.indexOf(i) !== -1) return;
-      ui.freeCells.push(i);
-      ui.freeLeft--;
-      ui.preview = new Set(ui.freeCells);
-      if (ui.freeLeft <= 0 || !anyPlaceableExcept(G, ui.freeCells)) {
-        doPlacement(ui.freeCells.slice());
-      } else {
-        redraw();
-      }
-      return;
-    }
-
-    // idle: begin a placement with the current shape
-    var shape = Engine.fitShape(G, Engine.currentShape(G, 'P'));
-    if (!shape) { Engine.checkJam(G); return finishMatch(); }
-
-    if (shape.kind === 'free') {
-      ui.mode = 'place-free';
-      ui.freeCells = []; ui.freeLeft = shape.n;
-      ui.highlight = collectCells(function (cell) { return Engine.placeable(cell); });
-      // fall through: first tap counts
-      App.ui = ui;
-      handleCellTap(i);
-      return;
-    }
-
-    if (shape.kind === 'block') {
-      var bcells = Engine.blockCells(G, Math.floor(i / G.size), i % G.size, shape.w, shape.h);
-      if (!bcells) { Render.toast("The block doesn't fit there."); return; }
-      doPlacement(bcells);
-      return;
-    }
-
-    // line
-    if (shape.len === 1) {
-      if (!Engine.placeable(G.cells[i])) return;
-      doPlacement([i]);
-      return;
-    }
-    if (!Engine.placeable(G.cells[i])) return;
-    var ends = validEndpoints(G, i, shape.len);
-    if (!ends.size) { Render.toast('A line of ' + shape.len + " can't start there."); return; }
-    ui.mode = 'place-endpoint';
-    ui.anchor = i;
-    ui.highlight = ends;
-    redraw();
-  }
-
-  function validEndpoints(G, anchor, len) {
-    var s = new Set();
-    var r = Math.floor(anchor / G.size), c = anchor % G.size;
-    Engine.ALL_DIRS8.forEach(function (d) {
-      var cells = Engine.lineCells(G, r, c, d, len);
-      if (cells) s.add(cells[cells.length - 1]);
+    var G = App.G, st = App.st;
+    if (G.over) return;
+    var summary = AI.takeTurn(G, st, App.run);
+    summary.events.forEach(function (ev, k) {
+      if (ev.t === 'dialogue') say(ev.key, { special: ev.key === 'preSpecial' });
+      if (ev.t === 'note') setTimeout(function () { Render.toast(ev.msg); }, 250 * k);
     });
-    return s;
+    var win = Engine.findWin(G, 'E', false);
+    if (win) { redraw(); return pageOver('loss', win); }
+    Engine.tickAfter(G, 'E');
+    if (boardJammed(G)) { redraw(); return pageOver('draw', null); }
+    playerTurnStart();
   }
 
-  function lineFromAnchor(G, anchor, endpoint) {
-    var r0 = Math.floor(anchor / G.size), c0 = anchor % G.size;
-    var r1 = Math.floor(endpoint / G.size), c1 = endpoint % G.size;
-    var d = { dr: Math.sign(r1 - r0), dc: Math.sign(c1 - c0) };
-    var len = Math.max(Math.abs(r1 - r0), Math.abs(c1 - c0)) + 1;
-    return Engine.lineCells(G, r0, c0, d, len);
-  }
-
-  function anyPlaceableExcept(G, taken) {
-    return G.cells.some(function (cell, i) {
-      return Engine.placeable(cell) && taken.indexOf(i) === -1;
-    });
-  }
-
-  function doPlacement(cells) {
-    var G = App.G, ui = App.ui;
-    Engine.placeMarks(G, 'P', cells, { pressHard: !!G.pressHardThisTurn });
-    fx();
-    if (G.over) return finishMatch();
-
-    if (G.doubleTake && ui.placementsDone === 0) {
-      ui.placementsDone = 1;
-      ui.mode = 'idle';
-      ui.anchor = null; ui.highlight = new Set(); ui.preview = new Set();
-      ui.freeCells = []; ui.freeLeft = 0;
-      Render.toast('DOUBLE TAKE — place it again!');
-      redraw();
-      return;
-    }
-    endPlayerTurn();
-  }
-
-  // ================= match end / draft / flip =================
-  function finishMatch() {
-    var G = App.G;
-    if (!G.over) return;
-    redraw();
-    setTimeout(function () {
-      if (G.side === 'front') {
-        App.front = G;
-        openDraft();
-      } else {
-        showResult();
-      }
-    }, 1100);
-  }
-
-  var draftGoesTo = null; // 'flip' | 'result'
-
-  function openDraft() {
-    var front = App.front;
-    var playerLost = front.over.winner === 'E';
-    draftGoesTo = (playerLost || front.flipsidePact) ? 'flip' : 'result';
-
-    var pool = Cards.DRAFT_POOL.slice();
-    Engine.shuffle(front, pool);
-    var picks = [pool[0], pool[1], pool[2]];
-
-    $('#draft-title').textContent = draftGoesTo === 'flip'
-      ? (playerLost ? 'Beaten… but the page has two sides.' : 'The Pact demands the flipside.')
-      : 'Page cleared! A sticker pack falls out of the notebook.';
-    $('#draft-sub').textContent = 'Tuck one card into your deck.';
-    $('#draft-cards').innerHTML = picks.map(function (id) { return Render.cardHTML(id); }).join('');
-    $('#draft-cards').querySelectorAll('.card').forEach(function (el) {
-      el.addEventListener('click', function () {
-        App.run.deckIds.push(el.getAttribute('data-card'));
-        Render.toast('Added: ' + Cards.DB[el.getAttribute('data-card')].name);
-        afterDraft();
-      });
-    });
-    Render.showScreen('screen-draft');
-  }
-
-  function afterDraft() {
-    if (draftGoesTo === 'flip') startFlipside();
-    else showResult();
-  }
-
-  function showResult() {
-    var G = App.G;
-    var won = G.over.winner === 'P';
-    var how = {
-      target: won ? 'You hit the target score.' : 'The Inkfiend hit the target score.',
-      jam: 'The page jammed solid — ' + (won ? 'your' : 'their') + ' ink weighed more.',
-      spiral: (won ? 'Your' : 'Their') + ' line ran through THE SPIRAL.',
-      suddenDeath: 'Sudden Death: a line of six ended everything.',
-    }[G.over.how] || '';
-
-    var title, body;
-    if (G.side === 'front' && won) {
-      title = 'PAGE CLEARED ✓';
-      body = how + ' In the full run you\'d march on to page 2 — for now, you can flip the page anyway to watch your ink bleed through.';
-    } else if (won) {
-      title = 'COMEBACK — WON ON THE REBOUND';
-      body = how + ' The front side\'s ink set up the flipside. That\'s the whole idea.';
+  // ================= stickers =================
+  function handleStickerTap(s) {
+    var run = App.run, ui = App.ui, G = App.G;
+    if (G.over || ui.busy) return;
+    if (ui.stickerArmed === s) { ui.stickerArmed = -1; ui.stickerTargets = []; redraw(); hintNow(); return; }
+    if (!ui.canUseSticker) { Render.toast('One sticky note per turn.'); return; }
+    var id = run.stickers[s];
+    if (!id) return;
+    var stk = Stickers.DB[id];
+    if (!stk.target) {
+      stk.effect(G, {});
+      run.stickers.splice(s, 1);
+      ui.canUseSticker = false;
+      Render.toast(stk.icon + ' ' + stk.name + '!');
+      absorbExtras();
+      updatePeek();
+      redraw(); hintNow();
     } else {
-      title = 'RUN OVER — the notebook closes';
-      body = how + ' Next time, leave more uncircled ink lying around: it becomes your ghosts on the flipside.';
+      if ((stk.target === 'enemyO' || stk.target === 'enemyO2') && countOs(G) === 0) {
+        Render.toast('No O\'s on the page to target.');
+        return;
+      }
+      ui.stickerArmed = s;
+      ui.stickerTargets = [];
+      redraw(); hintNow();
     }
-    $('#result-title').textContent = title;
-    $('#result-body').textContent = body;
-    $('#result-score').textContent = 'you ' + G.scores.P + ' · ' + G.scores.E + ' inkfiend';
-    $('#btn-flip-anyway').style.display = (G.side === 'front' && won) ? '' : 'none';
-    Render.showScreen('screen-result');
   }
 
-  // ================= steal modal =================
-  function openStealModal(k, id) {
-    var G = App.G;
-    var body = $('#modal-body');
-    body.innerHTML = '<h3>Sticky fingers…</h3><p>Take which trinket?</p>' +
-      G.trinkets.E.map(function (tid) {
-        var c = Cards.DB[tid];
-        return '<button class="modal-choice" data-t="' + tid + '">' + c.icon + ' ' + c.name + '<small>' + c.text + '</small></button>';
-      }).join('') + '<button class="modal-choice cancel">never mind</button>';
-    $('#modal').classList.add('open');
-    body.querySelectorAll('.modal-choice').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        $('#modal').classList.remove('open');
-        if (btn.classList.contains('cancel')) return;
-        commitCard(k, id, { trinketId: btn.getAttribute('data-t') });
+  function consumeSticker() {
+    var ui = App.ui, run = App.run;
+    var id = run.stickers[ui.stickerArmed];
+    run.stickers.splice(ui.stickerArmed, 1);
+    ui.stickerArmed = -1;
+    ui.stickerTargets = [];
+    ui.canUseSticker = false;
+    Render.toast(Stickers.DB[id].icon + ' ' + Stickers.DB[id].name + '!');
+    updatePeek();
+    redraw(); hintNow();
+  }
+
+  // ================= page end =================
+  function pageOver(result, line) {
+    var G = App.G, run = App.run;
+    G.over = { winner: result === 'win' ? 'P' : result === 'loss' ? 'E' : 'draw', line: line };
+    App.ui.busy = true;
+    redraw();
+
+    var isBoss = Run.isBossPage(run);
+    if (result === 'win') say(isBoss ? 'bossDefeat' : 'studentLoses');
+    else if (result === 'loss') say('studentWins');
+    else say('draw');
+
+    var delta = Run.applyResult(run, result);
+    if (delta) setTimeout(function () {
+      Render.toast(delta > 0 ? '+1 🍬 candy!' : '−2 🍬 candy…');
+      Render.drawCandy(run);
+    }, 700);
+
+    // pen bleedthrough: remember your final X
+    if (result === 'win' && !isBoss && Run.bleeds(run) && G.lastPlayerX) {
+      run.bleedCell = G.lastPlayerX;
+    }
+
+    setTimeout(function () { showResultOverlay(result); }, 1700);
+  }
+
+  function showResultOverlay(result) {
+    var run = App.run;
+    var isBoss = Run.isBossPage(run);
+    var title = result === 'win' ? (isBoss ? '👑 SUBJECT MASTERED' : 'PAGE WON') :
+      result === 'loss' ? (run.over ? 'OUT OF CANDY' : 'PAGE LOST') : 'A DRAW';
+    var body = result === 'win' ? '+1 🍬' : result === 'loss' ? '−2 🍬' : 'no candy changes hands';
+    $('#result-title2').textContent = title;
+    $('#result-body2').textContent = body + '  ·  candy: ' + run.candy;
+    $('#btn-continue').textContent = run.over ? '☠ the end' : '▶ continue';
+    $('#result-overlay').classList.add('show');
+    $('#result-overlay').dataset.result = result;
+  }
+
+  function continueFromResult() {
+    var run = App.run;
+    var result = $('#result-overlay').dataset.result;
+    $('#result-overlay').classList.remove('show');
+
+    if (run.over) return showGameOver();
+
+    if (Run.isBossPage(run)) {
+      if (result === 'win') return showReward();
+      return showCover('retry');            // the boss must be beaten to pass
+    }
+    // normal pages: the class period marches on, win or lose
+    Run.advancePage(run);
+    showCover('pageStart');
+  }
+
+  function showGameOver() {
+    $('#gameover-body').textContent =
+      'You ran out of candy in ' + Run.periodName(App.run) + ' (' + subj().title + '), page ' +
+      App.run.page + '. The vending machine of fate is empty.';
+    Render.showScreen('screen-gameover');
+  }
+
+  // ================= rewards =================
+  function showReward() {
+    var run = App.run;
+    var picks = Run.rewardChoices(run);
+    $('#reward-sub').textContent = subj().boss + ' drops something as the bell rings…';
+    $('#reward-cards').innerHTML = picks.map(function (id) {
+      var t = Run.TRINKETS[id];
+      return '<div class="trinket-card" data-t="' + id + '">' +
+        '<div class="tk-icon">' + t.icon + '</div><div class="tk-name">' + t.name + '</div>' +
+        '<div class="tk-text">' + t.text + '</div><div class="tk-flavor">' + t.flavor + '</div></div>';
+    }).join('');
+    $('#reward-cards').querySelectorAll('.trinket-card').forEach(function (el) {
+      el.addEventListener('click', function () {
+        run.trinkets.push(el.getAttribute('data-t'));
+        Render.toast('Permanent trinket: ' + Run.TRINKETS[el.getAttribute('data-t')].name + '!');
+        run._transformed = false;
+        var next = Run.nextLevel(run);
+        if (next === 'victory') return Render.showScreen('screen-victory');
+        showCover('intro');
       });
     });
+    Render.showScreen('screen-reward');
   }
 
-  function openHelp() {
-    var body = $('#modal-body');
-    body.innerHTML =
-      '<h3>How to play</h3>' +
-      '<p><b>Each turn:</b> draw 1, play up to 1 card (MARGIN cards are always free), then place your marks by tapping the page.</p>' +
-      '<p><b>Scoring:</b> finish a straight line of 3+ of your ✗ and it gets circled in pen: length 3 → 3 ink, 4 → 8, 5 → 15, 6 → 24. First to the target wins. Circled ink is permanent.</p>' +
-      '<p><b>The rules lie:</b> RULE cards change what scores and how big your placements are — for both of you.</p>' +
-      '<p><b>Doodles:</b> ★ +3 ink · ☕ ring ×2 · the SPIRAL: a scoring line through it wins instantly · smudges are dead paper.</p>' +
-      '<p><b>The flipside:</b> lose the front and you replay the page\'s other side, mirrored. Circled ink bleeds into dead smudges; your loose uncircled marks become ghosts you can reclaim for bonus ink. Losing well is a strategy. Hold 👁 to peek through the paper.</p>' +
-      '<button class="modal-choice cancel">back to the page</button>';
-    $('#modal').classList.add('open');
-    body.querySelector('.cancel').addEventListener('click', function () {
-      $('#modal').classList.remove('open');
+  // ================= bathroom =================
+  function enterBathroom() {
+    var run = App.run;
+    run.bathroomUsed = true;
+    run._shopOffer = Stickers.shopOffer(run.rng);
+    run._bought = false;
+    $('#eddie-line').textContent = Subjects.line(run.rng, Subjects.EDDIE.greet);
+    drawShop();
+    Render.showScreen('screen-bathroom');
+  }
+
+  function drawShop() {
+    var run = App.run;
+    $('#shop-candy').textContent = '🍬 × ' + run.candy;
+    $('#shop-items').innerHTML = run._shopOffer.map(function (id) {
+      var s = Stickers.DB[id];
+      var affordable = run.candy - s.price >= 1;   // never spend your last candy
+      var can = !run._bought && affordable && run.stickers.length < Run.MAX_STICKERS;
+      return '<div class="shop-item' + (can ? '' : ' off') + '" data-id="' + id + '">' +
+        '<span class="si-icon">' + s.icon + '</span>' +
+        '<span class="si-name">' + s.name + '</span>' +
+        '<span class="si-text">' + s.text + '</span>' +
+        '<span class="si-price">' + s.price + ' 🍬</span></div>';
+    }).join('');
+    $('#shop-items').querySelectorAll('.shop-item:not(.off)').forEach(function (el) {
+      el.addEventListener('click', function () { buySticker(el.getAttribute('data-id')); });
     });
+  }
+
+  function buySticker(id) {
+    var run = App.run;
+    var s = Stickers.DB[id];
+    if (run._bought) return;
+    if (run.candy - s.price < 1) {
+      $('#eddie-line').textContent = Subjects.line(run.rng, Subjects.EDDIE.broke);
+      return;
+    }
+    run.candy -= s.price;
+    run.stickers.push(id);
+    run._bought = true;
+    $('#eddie-line').textContent = Subjects.line(run.rng, Subjects.EDDIE.buy);
+    Render.toast(s.icon + ' bought ' + s.name + ' for ' + s.price + ' 🍬');
+    drawShop();
   }
 
   // ================= events =================
   function wire() {
+    document.querySelectorAll('.utensil-pick').forEach(function (el) {
+      el.addEventListener('click', function () { startRun(el.getAttribute('data-u')); });
+    });
+
     $('#board').addEventListener('click', function (e) {
       var cell = e.target.closest('.cell');
       if (cell) handleCellTap(+cell.getAttribute('data-i'));
     });
 
-    $('#hand').addEventListener('click', function (e) {
-      var card = e.target.closest('.card');
-      if (!card) return;
-      selectCard(+card.getAttribute('data-k'));
+    $('#sticker-row').addEventListener('click', function (e) {
+      var s = e.target.closest('.sticker');
+      if (s && s.dataset.s !== undefined) handleStickerTap(+s.dataset.s);
     });
 
-    $('#card-focus').addEventListener('click', function (e) {
-      if (e.target.id === 'focus-play') {
-        var k = App.ui.selectedCard;
-        App.ui.selectedCard = -1;
-        tryPlayCard(k);
-        return;
-      }
-      if (e.target.id === 'focus-back' || e.target.id === 'card-focus') {
-        App.ui.selectedCard = -1;
-        redraw();
-      }
+    $('#utensil-bar').addEventListener('click', function (e) {
+      var b = e.target.closest('.mode-btn');
+      if (!b || !App.ui || App.ui.busy) return;
+      App.ui.utensilMode = b.getAttribute('data-mode');
+      redraw(); hintNow();
     });
 
-    $('#btn-cancel').addEventListener('click', function () { cancelTargeting(); });
-    $('#btn-help').addEventListener('click', openHelp);
-    $('#btn-new-run').addEventListener('click', startRun);
-    $('#btn-again').addEventListener('click', function () { Render.showScreen('screen-title'); });
-    $('#btn-flip-anyway').addEventListener('click', startFlipside);
+    $('#btn-start-page').addEventListener('click', startPage);
+    $('#btn-face-boss').addEventListener('click', startPage);
+    $('#btn-continue').addEventListener('click', continueFromResult);
 
-    var peek = $('#btn-peek');
-    var peekOn = function (e) { e.preventDefault(); if (App.G && App.G.side === 'front') Render.showPeek(App.G); };
-    var peekOff = function () { Render.hidePeek(); };
-    peek.addEventListener('pointerdown', peekOn);
-    peek.addEventListener('pointerup', peekOff);
-    peek.addEventListener('pointerleave', peekOff);
-
-    $('#modal').addEventListener('click', function (e) {
-      if (e.target.id === 'modal') $('#modal').classList.remove('open');
+    $('#btn-bathroom').addEventListener('click', function () {
+      Render.toast('"I… gotta go to the bathroom."');
+      setTimeout(enterBathroom, 800);
     });
+    $('#btn-leave-shop').addEventListener('click', function () {
+      Render.toast(Subjects.line(App.run.rng, Subjects.EDDIE.leave));
+      showCover('pageStart');
+    });
+
+    $('#btn-again-1').addEventListener('click', function () { Render.showScreen('screen-title'); });
+    $('#btn-again-2').addEventListener('click', function () { Render.showScreen('screen-title'); });
   }
 
   document.addEventListener('DOMContentLoaded', function () {
     wire();
     Render.showScreen('screen-title');
   });
+
+  // dev hook for driving/staging in tests — not used by the game itself
+  window.__bt = { App: App, startPage: startPage, showCover: showCover, showReward: showReward };
 
 })();
