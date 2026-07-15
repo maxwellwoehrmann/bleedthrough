@@ -75,7 +75,7 @@ body {
 }
 .cover-page.dark { filter: brightness(.92) sepia(.15); }
 
-#screen-title, #screen-cover, #screen-transform, #screen-reward,
+#screen-title, #screen-cover, #screen-transform, #screen-pick,
 #screen-gameover, #screen-victory, #screen-bathroom {
   align-items: center; justify-content: center; padding: 16px 0;
 }
@@ -278,25 +278,41 @@ body {
 .mode-btn.on { background: var(--paper); color: var(--graphite); border-color: var(--paper); }
 .utensil-tag { font-family: 'Special Elite', monospace; font-size: 10px; opacity: .8; }
 
-#sticker-row { display: flex; gap: 8px; padding: 8px 0 2px; min-height: 64px; }
-.sticker {
-  flex: 1; max-width: 150px; min-height: 56px;
-  background: linear-gradient(175deg, #fdf0a4, var(--sticky));
-  border-radius: 2px; padding: 6px 8px; cursor: pointer;
-  box-shadow: 2px 3px 6px rgba(0,0,0,.45);
-  transform: rotate(-1deg);
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  text-align: center; transition: transform .12s, box-shadow .12s;
+/* ---------------- trinket shelf ---------------- */
+#shelf {
+  display: flex; gap: 6px; padding: 8px 0 4px; min-height: 54px;
+  overflow-x: auto; scrollbar-width: none; align-items: center;
 }
-.sticker:nth-child(even) { transform: rotate(1.2deg); }
-.sticker.usable:hover { transform: translateY(-4px); }
-.sticker.armed { box-shadow: 0 0 0 2.5px var(--pen-red), 2px 3px 8px rgba(0,0,0,.5); transform: translateY(-4px); }
-.sticker.empty {
-  background: transparent; border: 1.5px dashed rgba(232, 224, 206, .3);
-  color: rgba(232,224,206,.3); box-shadow: none; cursor: default; font-size: 20px;
+#shelf::-webkit-scrollbar { display: none; }
+.shelf-empty { font-family: 'Caveat', cursive; color: rgba(232,224,206,.45); font-size: 16px; margin: auto; }
+.chip {
+  flex: 0 0 auto; position: relative;
+  width: 44px; height: 44px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 21px; cursor: pointer;
+  background: var(--paper);
+  border: 2px solid var(--graphite);
+  box-shadow: 1px 2px 4px rgba(0,0,0,.4);
+  transition: transform .1s;
 }
-.st-icon { font-size: 17px; }
-.st-name { font-family: 'Caveat', cursive; font-size: 14.5px; font-weight: 700; line-height: 1.1; color: var(--graphite); }
+.chip:active { transform: scale(.94); }
+.chip.r-uncommon { border-color: #3f7d4e; }
+.chip.r-rare { border-color: #2b5fb8; box-shadow: 0 0 6px rgba(43,95,184,.4), 1px 2px 4px rgba(0,0,0,.4); }
+.chip.r-mythical { border-color: #a8571f; background: linear-gradient(160deg, #fdf0c4, #f5d98c); box-shadow: 0 0 10px rgba(212,148,52,.55), 1px 2px 4px rgba(0,0,0,.4); }
+.chip.active-chip.charged { outline: 2px dashed rgba(255,214,68,.75); outline-offset: 2px; }
+.chip.active-chip.spent { opacity: .45; filter: grayscale(.6); }
+.chip.armed { transform: translateY(-4px); box-shadow: 0 0 0 2.5px var(--pen-red), 2px 6px 10px rgba(0,0,0,.5); }
+.chip-count {
+  position: absolute; top: -6px; right: -6px;
+  font-family: 'Caveat', cursive; font-size: 13px; font-weight: 700;
+  background: var(--pen-red); color: #fff; border-radius: 8px; padding: 0 4px;
+}
+.chip-charges {
+  position: absolute; bottom: -5px; right: -5px;
+  font-family: 'Special Elite', monospace; font-size: 9px;
+  background: var(--graphite); color: #f5efdc; border-radius: 6px; padding: 0 4px;
+}
+.panel-label { font-family: 'Special Elite', monospace; font-size: 10px; opacity: .6; }
 
 /* ---------------- result overlay ---------------- */
 #result-overlay {
@@ -394,3 +410,97 @@ body {
   .utensil-row { flex-direction: column; align-items: center; }
   .utensil-pick { max-width: 260px; }
 }
+
+/* ============================================================
+   v0.3 additions: tokens, tears, webs, rarity cards, seating
+   ============================================================ */
+
+.title-tip { font-family: 'Special Elite', monospace; font-size: 10.5px; opacity: .65; margin-top: 10px; line-height: 1.7; }
+
+/* token doodle colors */
+.tok path, .tok circle, .tok ellipse { fill: none; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
+.tok.ink path, .tok.ink circle, .tok.ink ellipse { stroke: var(--ink); }
+.tok.steel path, .tok.steel circle { stroke: #6e6e78; }
+.tok.bio path, .tok.bio circle { stroke: #2e7d4f; }
+.tok.gold path, .tok.gold ellipse { stroke: #b58a1f; }
+.tok.red path { stroke: #c0392b; }
+.tok .fill { fill: currentColor; stroke: none; }
+.tok.ink .fill { fill: var(--ink); }
+.tok.bio .fill { fill: #2e7d4f; }
+.tok.steel .fill-light { fill: rgba(110,110,120,.15); stroke: none; }
+.tok.red .leaf { stroke: #2e7d4f; fill: rgba(46,125,79,.2); }
+
+.token-svg { position: absolute; pointer-events: none; z-index: 2; }
+.token-svg.span-v2 { top: 4%; left: 4%; width: 92%; height: 192%; }
+.token-svg.span-v3 { top: 4%; left: 4%; width: 92%; height: 292%; }
+.token-svg.span-h3 { top: 4%; left: 4%; width: 292%; height: 92%; }
+
+/* candy mark */
+.glyph-candy .candy-body { fill: rgba(208,52,44,.25); stroke: var(--pen-red); stroke-width: 5; }
+.glyph-candy .candy-wrap { fill: rgba(208,52,44,.15); stroke: var(--pen-red); stroke-width: 4; stroke-linejoin: round; }
+.glyph-candy .candy-swirl { fill: none; stroke: var(--pen-red); stroke-width: 3.5; stroke-linecap: round; }
+
+/* torn squares: holes in the paper */
+.doodle-tear path { fill: var(--desk); stroke: #c9bda0; stroke-width: 3; stroke-linejoin: round; }
+
+/* webs */
+.doodle-web path { fill: none; stroke: rgba(110,110,120,.55); stroke-width: 2.5; stroke-linecap: round; }
+.cell.webbed { background: radial-gradient(ellipse at 50% 40%, rgba(110,110,120,.18), transparent 75%); }
+
+/* pressed (ballpoint bleed) & bled-in X's */
+.glyph-x.pressed .stroke { stroke: #1d2f6e; stroke-width: 11; }
+.glyph-x.bled .stroke { stroke: #6b3a86; opacity: .85; }
+
+/* badges */
+.warn-badge {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 20px; animation: flashPulse .8s ease-in-out infinite; pointer-events: none;
+  text-shadow: 0 0 8px rgba(208, 52, 44, .8); z-index: 3;
+}
+.mini-badge { position: absolute; font-size: 10px; pointer-events: none; z-index: 3; }
+.b-shield { left: 1px; bottom: 0; }
+.b-lam { right: 1px; bottom: 0; }
+.b-root { left: 1px; top: 0; }
+.b-press { right: 1px; top: 0; }
+
+/* rarity on cards & shop */
+.trinket-card { position: relative; max-width: 200px; }
+.tk-rarity {
+  font-family: 'Special Elite', monospace; font-size: 8.5px; letter-spacing: 2px;
+  text-transform: uppercase; opacity: .65; margin-bottom: 2px;
+}
+.trinket-card.r-uncommon { border-color: #3f7d4e; }
+.trinket-card.r-rare { border-color: #2b5fb8; box-shadow: 0 0 10px rgba(43,95,184,.35), 2px 3px 8px rgba(0,0,0,.4); }
+.trinket-card.r-mythical {
+  border-color: #a8571f;
+  background: linear-gradient(160deg, #fdf0c4, #f0cd7e);
+  box-shadow: 0 0 16px rgba(212,148,52,.6), 2px 3px 8px rgba(0,0,0,.4);
+}
+#pick-cards { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 10px; }
+#pick-cards .trinket-card { flex: 1 1 140px; cursor: pointer; }
+#pick-cards .trinket-card:hover { transform: translateY(-5px); }
+
+.shop-item.r-rare { box-shadow: 0 0 8px rgba(43,95,184,.4), 1px 2px 5px rgba(0,0,0,.35); }
+.shop-item.r-mythical { background: linear-gradient(160deg, #fdf0c4, #f0cd7e); box-shadow: 0 0 12px rgba(212,148,52,.55), 1px 2px 5px rgba(0,0,0,.35); }
+.si-rarity { font-family: 'Special Elite', monospace; font-size: 8px; font-style: normal; opacity: .55; letter-spacing: 1px; text-transform: uppercase; }
+
+/* seating chart */
+.seating-row { display: none; align-items: center; justify-content: center; gap: 8px; margin: 4px 0; }
+.seat-label { font-family: 'Special Elite', monospace; font-size: 10px; opacity: .7; }
+.seat-btn {
+  font-family: 'Caveat', cursive; font-size: 16px; font-weight: 700;
+  background: #fdfaf1; color: var(--graphite);
+  border: 2px solid var(--graphite-soft); border-radius: 8px;
+  padding: 2px 12px; cursor: pointer;
+}
+.seat-btn.on { background: var(--graphite); color: #f5efdc; border-color: var(--graphite); }
+
+/* gravity pages get a subtle downward vibe */
+body.gravity-page #page { box-shadow: 0 22px 40px rgba(0, 0, 0, .65), 0 2px 6px rgba(0,0,0,.35); }
+
+/* exact SVG grid (replaces box-shadow cell borders) */
+.grid-svg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+.grid-line { stroke: var(--graphite-soft); stroke-width: 2.5; }
+.grid-frame { fill: none; stroke: var(--graphite-soft); stroke-width: 6; rx: 4; }
+.cell:not(.margin) { box-shadow: none; }
+#board-frame { display: none; }

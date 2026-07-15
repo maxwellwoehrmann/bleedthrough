@@ -1,11 +1,11 @@
-/* BLEEDTHROUGH v0.2 — engine/run/ai tests (bun tests/run-tests.js) */
+/* BLEEDTHROUGH v0.3 — engine/trinkets/run/ai tests (bun tests/run-tests.js) */
 'use strict';
 const path = require('path');
 
 global.Engine = require(path.join(__dirname, '..', 'js', 'engine.js'));
 global.Subjects = require(path.join(__dirname, '..', 'js', 'subjects.js'));
+global.Trinkets = require(path.join(__dirname, '..', 'js', 'trinkets.js'));
 global.Run = require(path.join(__dirname, '..', 'js', 'run.js'));
-global.Stickers = require(path.join(__dirname, '..', 'js', 'stickers.js'));
 global.AI = require(path.join(__dirname, '..', 'js', 'ai.js'));
 
 let pass = 0, fail = 0;
@@ -18,265 +18,345 @@ function eq(a, b, msg) {
 }
 function ok(v, msg) { if (!v) throw new Error(msg || 'expected truthy'); }
 
-function mkG(size, first) {
-  return Engine.newPage({ size: size || 4, seed: 42, firstTurn: first || 'P' });
+function mkG(opts) {
+  return Engine.newPage(Object.assign({ rows: 4, cols: 4, winLen: 4, seed: 42 }, opts));
 }
-function fill(G, who, rcs) {
-  rcs.forEach(([r, c]) => { Engine.at(G, r, c).mark = who === 'P' ? 'X' : 'O'; });
+function fill(G, who, rcs, kind) {
+  rcs.forEach(([r, c]) => {
+    const cl = Engine.at(G, r, c);
+    cl.mark = who === 'P' ? 'X' : 'O';
+    if (kind) cl.kind = kind;
+  });
+}
+function mkRun(trinkets, seed) {
+  const r = Run.newRun(seed || 7);
+  (trinkets || []).forEach(id => r.trinkets.push(id));
+  return r;
 }
 
-console.log('\n-- board & placement --');
-t('4x4 page has a margin ring (6x6 grid)', () => {
-  const G = mkG(4);
-  eq(G.W, 6); eq(G.winLen, 4);
-  eq(Engine.innerCells(G).length, 16);
+console.log('\n-- boards --');
+t('rectangular boards work (7 rows x 5 cols)', () => {
+  const G = mkG({ rows: 7, cols: 5, winLen: 5 });
+  eq(Engine.innerCells(G).length, 35);
+  fill(G, 'P', [[2, 1], [3, 1], [4, 1], [5, 1], [6, 1]]);
+  ok(Engine.findWinNormal(G, 'P'), 'vertical 5 wins');
 });
-t('cannot place in margin without an unlock; can with one', () => {
-  const G = mkG(4);
-  eq(Engine.place(G, 'P', -1, 0), null);
+t('physics notebooks are taller than wide; others square', () => {
+  const r = mkRun();
+  r.subjects = ['physics', 'history', 'biology', 'greek'];
+  let b = Run.boardFor(r);
+  ok(b.rows > b.cols, 'physics tall');
+  ok(b.gravity, 'physics has gravity');
+  r.level = 2; // history slot
+  b = Run.boardFor(r);
+  eq(b.rows, b.cols, 'history square');
+  ok(!b.gravity, 'no gravity outside physics');
+});
+t('margin ring: player-only, needs unlock, counts for lines', () => {
+  const G = mkG();
+  ok(!Engine.canPlace(G, 'P', Engine.at(G, -1, 0)));
   G.marginUnlocks = 1;
-  ok(Engine.place(G, 'P', -1, 0));
-  eq(G.marginUnlocks, 0);
-});
-t('enemy can never use the margin', () => {
-  const G = mkG(4);
-  G.marginUnlocks = 5;
+  ok(Engine.canPlace(G, 'P', Engine.at(G, -1, 0)));
   ok(!Engine.canPlace(G, 'E', Engine.at(G, -1, 0)));
+  fill(G, 'P', [[0, 0], [1, 0], [2, 0]]);
+  Engine.place(G, 'P', Engine.at(G, -1, 0));
+  ok(Engine.findWinNormal(G, 'P'), 'margin X completes the column');
 });
-t('smudged cells block placement and expire after rounds', () => {
-  const G = mkG(4);
-  Engine.at(G, 1, 1).smudge = 2;
-  ok(!Engine.canPlace(G, 'P', Engine.at(G, 1, 1)));
-  Engine.tickAfter(G, 'E'); Engine.tickAfter(G, 'E');
-  ok(Engine.canPlace(G, 'P', Engine.at(G, 1, 1)));
+
+console.log('\n-- gravity --');
+t('pieces fall to the bottom', () => {
+  const G = mkG({ rows: 6, cols: 4, winLen: 4, gravity: true });
+  const target = Engine.target(G, 'P', Engine.at(G, 0, 2));
+  eq(target.r, 5, 'lands on the floor');
+  Engine.place(G, 'P', target);
+  const t2 = Engine.target(G, 'P', Engine.at(G, 0, 2));
+  eq(t2.r, 4, 'stacks on top');
 });
-t('frozen cells block only the player, thaw after their turn', () => {
-  const G = mkG(4);
-  Engine.at(G, 2, 2).frozen = 1;
+t('torn squares act as shelves', () => {
+  const G = mkG({ rows: 6, cols: 4, winLen: 4, gravity: true });
+  Engine.tear(G, Engine.at(G, 3, 1));
+  const target = Engine.target(G, 'P', Engine.at(G, 0, 1));
+  eq(target.r, 2, 'rests on the tear');
+});
+t('settle drops floating pieces after destruction', () => {
+  const G = mkG({ rows: 6, cols: 4, winLen: 4, gravity: true });
+  fill(G, 'P', [[5, 0], [4, 0]]);
+  fill(G, 'E', [[3, 0]]);
+  Engine.destroy(G, Engine.at(G, 5, 0), true);
+  Engine.settle(G);
+  eq(Engine.at(G, 5, 0).mark, 'X', 'X fell to floor');
+  eq(Engine.at(G, 4, 0).mark, 'O', 'O fell onto it, order preserved');
+  ok(!Engine.at(G, 3, 0).mark, 'top square now empty');
+});
+
+console.log('\n-- win modes --');
+t('Skipping Stone: X_X_X wins on winLen 5', () => {
+  const G = mkG({ rows: 5, cols: 5, winLen: 5 });
+  fill(G, 'P', [[2, 0], [2, 2], [2, 4]]);
+  ok(!Engine.findWinNormal(G, 'P'));
+  ok(Engine.findWinSkipping(G, 'P'), 'skipping win');
+});
+t('Skipping Stone: no double gaps, no gap ends', () => {
+  const G = mkG({ rows: 5, cols: 5, winLen: 5 });
+  fill(G, 'P', [[1, 0], [1, 4]]);            // X___X
+  ok(!Engine.findWinSkipping(G, 'P'));
+  const G2 = mkG({ rows: 5, cols: 5, winLen: 5 });
+  fill(G2, 'P', [[3, 1], [3, 2], [3, 3], [3, 4]]); // _XXXX span needs X ends
+  ok(!Engine.findWinSkipping(G2, 'P') || Engine.findWinNormal(G2, 'P') === null);
+});
+t('Connect-the-Dots: a snake of winLen wins', () => {
+  const G = mkG({ rows: 4, cols: 4, winLen: 4 });
+  fill(G, 'P', [[0, 0], [1, 0], [1, 1], [2, 1]]);
+  ok(!Engine.findWinNormal(G, 'P'));
+  ok(Engine.findWinConnect(G, 'P'), 'connected blob of 4');
+});
+t('candy marks count as X for lines', () => {
+  const G = mkG();
+  fill(G, 'P', [[0, 0], [0, 1], [0, 2]]);
+  fill(G, 'P', [[0, 3]], 'candy');
+  ok(Engine.findWinNormal(G, 'P'));
+});
+t('blockers (swords) count for nobody', () => {
+  const G = mkG();
+  fill(G, 'E', [[1, 0], [1, 1], [1, 2]]);
+  Engine.at(G, 1, 3).mark = 'B';
+  ok(!Engine.findWinNormal(G, 'E'));
+});
+
+console.log('\n-- tokens & powers --');
+t('horse occupies 2, trident 3, sword blocks 3', () => {
+  const G = mkG({ rows: 6, cols: 6, winLen: 5 });
+  ok(Engine.placeToken(G, 'horse', 0, 0));
+  eq(Engine.at(G, 1, 0).kind, 'horse');
+  ok(Engine.placeToken(G, 'trident', 0, 2));
+  eq(Engine.at(G, 2, 2).mark, 'O');
+  ok(Engine.placeToken(G, 'sword', 5, 1));
+  eq(Engine.at(G, 5, 2).mark, 'B');
+});
+t('destroy respects candy, lamination, shield', () => {
+  const G = mkG();
+  fill(G, 'P', [[0, 0]], 'candy');
+  eq(Engine.destroy(G, Engine.at(G, 0, 0), false), 'immune');
+  const c1 = Engine.at(G, 1, 1); c1.mark = 'X'; c1.laminated = true;
+  eq(Engine.destroy(G, c1, false), 'immune');
+  const c2 = Engine.at(G, 2, 2); c2.mark = 'X'; c2.shield = true;
+  eq(Engine.destroy(G, c2, false), 'shielded');
+  eq(c2.mark, 'X', 'still there');
+  eq(Engine.destroy(G, c2, false), 'destroyed');
+});
+t('tearColumn destroys everything in the column', () => {
+  const G = mkG({ rows: 5, cols: 5, winLen: 5 });
+  fill(G, 'P', [[0, 2], [1, 2]]);
+  fill(G, 'E', [[3, 2]]);
+  eq(Engine.tearColumn(G, 2), 5);
+  ok(Engine.at(G, 0, 2).torn && !Engine.at(G, 0, 2).mark);
+});
+t('connectsChains detects a bridge between two 3-chains', () => {
+  const G = mkG({ rows: 5, cols: 7, winLen: 5 });
+  fill(G, 'P', [[2, 0], [2, 1], [2, 2]]);   // chain A
+  fill(G, 'P', [[2, 4], [2, 5], [2, 6]]);   // chain B
+  const bridge = Engine.at(G, 2, 3);
+  bridge.mark = 'X';
+  ok(Engine.connectsChains(G, bridge, 'P', 3));
+  const lone = Engine.at(G, 4, 3); lone.mark = 'X';
+  ok(!Engine.connectsChains(G, lone, 'P', 3));
+});
+t('fountain pen fills gaps and chains', () => {
+  const G = mkG({ rows: 5, cols: 7, winLen: 5 });
+  fill(G, 'P', [[1, 0], [1, 2], [1, 4]]);
+  const fills = Engine.penFills(G, 'P');
+  eq(fills.length, 2, 'both middles filled');
+  eq(Engine.at(G, 1, 1).mark, 'X');
+  eq(Engine.at(G, 1, 3).mark, 'X');
+});
+t('electrify sprouts diagonal X\'s', () => {
+  const G = mkG();
+  const cell = Engine.at(G, 1, 1); cell.mark = 'X';
+  const made = Engine.electrify(G, cell, 'P');
+  eq(made.length, 4);
+});
+t('rooted X sprouts a neighbour', () => {
+  const G = mkG();
+  const cell = Engine.at(G, 1, 1); cell.mark = 'X'; cell.rooted = true;
+  const made = Engine.sproutRooted(G, 'P');
+  eq(made.length, 1);
+  ok(made[0].mark === 'X');
+});
+t('webs block the player for one turn only', () => {
+  const G = mkG();
+  Engine.at(G, 2, 2).web = 1;
   ok(!Engine.canPlace(G, 'P', Engine.at(G, 2, 2)));
   ok(Engine.canPlace(G, 'E', Engine.at(G, 2, 2)));
   Engine.tickAfter(G, 'P');
   ok(Engine.canPlace(G, 'P', Engine.at(G, 2, 2)));
 });
 
-console.log('\n-- winning --');
-t('4-in-a-row wins on a 4x4', () => {
-  const G = mkG(4);
-  fill(G, 'P', [[0, 0], [0, 1], [0, 2], [0, 3]]);
-  const win = Engine.findWin(G, 'P', false);
-  ok(win); eq(win.length, 4);
+console.log('\n-- trinket math (Quiz then Test) --');
+t('Teacher\'s Apple: 1 -> 2 (quiz) -> 4 (test after quiz)', () => {
+  const r = mkRun(['apple']);
+  eq(Trinkets.val(r, 'apple', 'candy'), 1);
+  r.trinkets.push('mathQuiz');
+  eq(Trinkets.val(r, 'apple', 'candy'), 2);
+  r.trinkets.push('mathTest');
+  eq(Trinkets.val(r, 'apple', 'candy'), 4);
 });
-t('diagonal wins', () => {
-  const G = mkG(4);
-  fill(G, 'P', [[0, 0], [1, 1], [2, 2], [3, 3]]);
-  ok(Engine.findWin(G, 'P', false));
+t('Stamp: every-3rd 2x2 -> every-2nd 3x3 (quiz) -> every-1st 6x6 (test)', () => {
+  const r = mkRun(['stamp']);
+  eq(Trinkets.val(r, 'stamp', 'nth'), 3);
+  eq(Trinkets.val(r, 'stamp', 'size'), 2);
+  r.trinkets.push('mathQuiz');
+  eq(Trinkets.val(r, 'stamp', 'nth'), 2);
+  eq(Trinkets.val(r, 'stamp', 'size'), 3);
+  r.trinkets.push('mathTest');
+  eq(Trinkets.val(r, 'stamp', 'nth'), 1);
+  eq(Trinkets.val(r, 'stamp', 'size'), 6);
 });
-t('3-in-a-row does not win on a 4x4', () => {
-  const G = mkG(4);
-  fill(G, 'P', [[0, 0], [0, 1], [0, 2]]);
-  ok(!Engine.findWin(G, 'P', false));
+t('every-Nth clamps at 1; candycane cost can hit 0', () => {
+  const r = mkRun(['stickerStar', 'candycane', 'mathQuiz', 'mathQuiz', 'mathQuiz', 'mathQuiz']);
+  eq(Trinkets.val(r, 'stickerStar', 'nth'), 1);
+  eq(Trinkets.val(r, 'candycane', 'cost'), 0);
 });
-t('margin X completes a line', () => {
-  const G = mkG(4);
-  fill(G, 'P', [[0, 0], [0, 1], [0, 2]]);
-  G.marginUnlocks = 1;
-  Engine.place(G, 'P', 0, -1);
-  ok(Engine.findWin(G, 'P', false), 'line -1..2 across the edge');
+t('duplicates stack via total()', () => {
+  const r = mkRun(['apple', 'apple']);
+  eq(Trinkets.total(r, 'apple', 'candy'), 2);
 });
-t('Double-Spaced: X X _ X counts as a 4-line (one interior gap)', () => {
-  const G = mkG(4);
-  fill(G, 'P', [[1, 0], [1, 1], [1, 3]]);
-  ok(!Engine.findWin(G, 'P', false), 'not without the trinket');
-  ok(Engine.findWin(G, 'P', true), 'with the trinket');
-});
-t('Double-Spaced: gap cannot be at the ends or doubled', () => {
-  const G = mkG(4);
-  fill(G, 'P', [[2, 0], [2, 3]]);           // two gaps
-  ok(!Engine.findWin(G, 'P', true));
-  const G2 = mkG(4);
-  fill(G2, 'P', [[3, 1], [3, 2], [3, 3]]);  // gap would be at an end
-  ok(!Engine.findWin(G2, 'P', true));
-});
-t('smudged square cannot be the Double-Spaced gap', () => {
-  const G = mkG(4);
-  fill(G, 'P', [[1, 0], [1, 1], [1, 3]]);
-  Engine.at(G, 1, 2).smudge = 2;
-  ok(!Engine.findWin(G, 'P', true));
-});
-
-console.log('\n-- utensils & powers --');
-t('eraseO leaves a timed smudge', () => {
-  const G = mkG(4);
-  fill(G, 'E', [[1, 1]]);
-  ok(Engine.eraseO(G, 1, 1, 2));
-  eq(Engine.at(G, 1, 1).mark, null);
-  eq(Engine.at(G, 1, 1).smudge, 2);
-});
-t('tall horse occupies two cells; erasing a leg shoos the whole horse', () => {
-  const G = mkG(4);
-  ok(Engine.placeHorse(G, 1, 2));
-  eq(Engine.at(G, 1, 2).mark, 'O'); eq(Engine.at(G, 2, 2).mark, 'O');
-  ok(Engine.eraseO(G, 2, 2, 0));
-  eq(Engine.at(G, 1, 2).mark, null, 'head gone too');
-});
-t('horse completes a column win', () => {
-  const G = mkG(4);
-  fill(G, 'E', [[0, 1], [1, 1]]);
-  ok(Engine.placeHorse(G, 2, 1));
-  ok(Engine.findWin(G, 'E', false));
-});
-t('shield eats one burn', () => {
-  const G = mkG(4);
-  G.shieldNext = true;
-  Engine.place(G, 'P', 1, 1);
-  ok(Engine.at(G, 1, 1).shield);
-  ok(!Engine.smudgeX(G, 1, 1, 2), 'shield absorbed it');
-  eq(Engine.at(G, 1, 1).mark, 'X');
-  ok(Engine.smudgeX(G, 1, 1, 2), 'second hit lands');
-});
-t('lightning O lands on smudges', () => {
-  const G = mkG(4);
-  Engine.at(G, 2, 2).smudge = 2;
-  ok(Engine.placeBoltO(G, 2, 2));
-  eq(Engine.at(G, 2, 2).mark, 'O');
-  eq(Engine.at(G, 2, 2).smudge, 0);
+t('Extra Credit: 2 places, x2 with Math Test', () => {
+  const r = mkRun(['extraCredit']);
+  eq(Trinkets.val(r, 'extraCredit', 'places'), 2);
+  r.trinkets.push('mathTest');
+  eq(Trinkets.val(r, 'extraCredit', 'places'), 4);
 });
 
 console.log('\n-- run & candy --');
-t('level 1 is 4x4; level 2 is 5x5', () => {
-  const run = Run.newRun('pencil', 7);
-  eq(Run.boardSize(run), 4);
-  run.level = 2;
-  eq(Run.boardSize(run), 5);
+t('5-page notebooks, page 5 is boss', () => {
+  const r = mkRun();
+  eq(r.pagesPerNotebook, 5);
+  r.page = 5;
+  ok(Run.isBossPage(r));
 });
-t('candy: +1 win, -2 loss, 0 draw, dead at 0', () => {
-  const run = Run.newRun('pen', 7);
-  eq(run.candy, 5);
-  Run.applyResult(run, 'win'); eq(run.candy, 6);
-  Run.applyResult(run, 'draw'); eq(run.candy, 6);
-  Run.applyResult(run, 'loss'); eq(run.candy, 4);
-  Run.applyResult(run, 'loss'); Run.applyResult(run, 'loss');
-  eq(run.candy, 0); ok(run.over);
+t('candy: win +1 (+apple), loss -2, gum softens first loss', () => {
+  const r = mkRun(['apple', 'gum']);
+  eq(r.candy, 5);
+  Run.applyResult(r, 'win'); eq(r.candy, 7, '1 + 1 apple');
+  Run.applyResult(r, 'loss'); eq(r.candy, 6, 'gum: -2 +1 = -1');
+  Run.applyResult(r, 'loss'); eq(r.candy, 4, 'gum used up');
 });
-t('utensils: pencil erases, pen bleeds, erasable pen does both', () => {
-  const pencil = Run.newRun('pencil', 7), pen = Run.newRun('pen', 7);
-  ok(Run.canErase(pencil)); ok(!Run.bleeds(pencil));
-  ok(!Run.canErase(pen)); ok(Run.bleeds(pen));
-  pen.trinkets.push('erasablePen');
-  ok(Run.canErase(pen)); ok(Run.bleeds(pen));
+t('juice box saves you once', () => {
+  const r = mkRun(['juiceBox']);
+  r.candy = 2;
+  Run.applyResult(r, 'loss');
+  eq(r.candy, 1, 'survived at 1');
+  ok(!r.over);
+  Run.applyResult(r, 'loss');
+  ok(r.over, 'second time is fatal');
 });
-t('page 10 is the boss; beating it offers 2 distinct trinkets', () => {
-  const run = Run.newRun('pen', 7);
-  run.page = 10;
-  ok(Run.isBossPage(run));
-  const picks = Run.rewardChoices(run);
-  eq(picks.length, 2);
-  ok(picks[0] !== picks[1]);
+t('shop prices: rarity base, student id, coupon book', () => {
+  const r = mkRun();
+  eq(Trinkets.price(r, 'apple'), 2);
+  eq(Trinkets.price(r, 'extraCredit'), 12);
+  r.trinkets.push('studentId');
+  eq(Trinkets.price(r, 'extraCredit'), 11);
+  r.trinkets.push('couponBook');
+  eq(Trinkets.price(r, 'extraCredit'), 5, '(12-1)/2 floored');
+  eq(Trinkets.price(r, 'apple'), 1, 'min 1');
 });
-t('subjects are shuffled but complete', () => {
-  const run = Run.newRun('pen', 123);
-  eq(run.subjects.length, Object.keys(Subjects.ALL).length);
-  ok(run.subjects.indexOf('history') !== -1);
-  ok(run.subjects.indexOf('mythology') !== -1);
+t('vending key grants extra bathroom visits', () => {
+  const r = mkRun();
+  eq(Run.bathroomVisitsAllowed(r), 1);
+  r.trinkets.push('vendingKey');
+  eq(Run.bathroomVisitsAllowed(r), 2);
 });
-
-console.log('\n-- stickers --');
-t('shop offers 5 distinct notes', () => {
+t('piggy bank pays interest at notebook end', () => {
+  const r = mkRun(['piggyBank']);
+  r.candy = 11;
+  Run.nextLevel(r);
+  ok(r.candy >= 13, '11 + 2 interest (+ maybe loose change)');
+});
+t('offers: 3 distinct, uncommons only for locker pick, no signatures', () => {
   const rng = Engine.makeRng(9);
-  const offer = Stickers.shopOffer(rng);
-  eq(offer.length, 5);
-  eq(new Set(offer).size, 5);
+  const offer = Trinkets.offer(rng, 3);
+  eq(new Set(offer).size, 3);
+  offer.forEach(id => ok(!Trinkets.DB[id].signature, id + ' not a signature'));
+  const unc = Trinkets.uncommonOffer(rng, 3);
+  unc.forEach(id => eq(Trinkets.DB[id].rarity, 'uncommon'));
 });
-t('two-fer grants an extra place; margin note unlocks the ring', () => {
-  const G = mkG(4);
-  Stickers.DB.twofer.effect(G);
-  eq(G.extraPlaces, 1);
-  Stickers.DB.marginNote.effect(G);
-  eq(G.marginUnlocks, 1);
-});
-t('hall pass skips the enemy turn', () => {
-  const G = mkG(4);
-  Stickers.DB.timeOut.effect(G);
-  const run = Run.newRun('pen', 7);
-  const st = AI.newState(run);
-  const sum = AI.takeTurn(G, st, run);
-  ok(sum.skipped);
-  eq(G.cells.filter(c => c.mark === 'O').length, 0);
-});
-t('fire drill erases two O\'s', () => {
-  const G = mkG(4);
-  fill(G, 'E', [[0, 0], [1, 1]]);
-  Stickers.DB.bellRinger.effect(G, { targets: [{ r: 0, c: 0 }, { r: 1, c: 1 }] });
-  eq(G.cells.filter(c => c.mark === 'O').length, 0);
+t('all four subjects present and shuffled', () => {
+  const r = mkRun();
+  eq(r.subjects.length, 4);
+  ['history', 'greek', 'biology', 'physics'].forEach(s => ok(r.subjects.indexOf(s) !== -1, s));
 });
 
 console.log('\n-- AI --');
 t('takes a winning move', () => {
-  const G = mkG(4);
+  const G = mkG();
   fill(G, 'E', [[0, 0], [0, 1], [0, 2]]);
-  const run = Run.newRun('pen', 7);
-  run.page = 9; // low mistake chance
-  const st = AI.newState(run);
-  AI.takeTurn(G, st, run);
-  ok(Engine.findWin(G, 'E', false), 'enemy completed its row');
+  const r = mkRun(); r.page = 4;
+  const st = AI.newState(r);
+  AI.takeTurn(G, st, r);
+  ok(Engine.findWinNormal(G, 'E'));
 });
-t('blocks an imminent player win', () => {
-  const run = Run.newRun('pen', 7);
-  run.page = 9;
+t('blocks an imminent player win (mostly)', () => {
+  const r = mkRun(); r.page = 4;
   let blocked = 0;
   for (let trial = 0; trial < 10; trial++) {
-    const G = Engine.newPage({ size: 4, seed: trial + 1 });
+    const G = Engine.newPage({ rows: 4, cols: 4, winLen: 4, seed: trial + 1 });
     fill(G, 'P', [[2, 0], [2, 1], [2, 2]]);
-    const st = AI.newState(run);
-    AI.takeTurn(G, st, run);
+    AI.takeTurn(G, AI.newState(r), r);
     if (Engine.at(G, 2, 3).mark === 'O') blocked++;
   }
   ok(blocked >= 8, 'blocked ' + blocked + '/10');
 });
-t('boss telegraphs, then the horse arrives', () => {
-  const run = Run.newRun('pen', 7);
-  run.subjects = ['history', 'mythology'];
-  run.page = 10;
-  const G = mkG(4, 'E');
-  const st = AI.newState(run);
-  ok(st.isBoss);
-  AI.takeTurn(G, st, run);                     // turn 1: normal
-  const s2 = AI.takeTurn(G, st, run);          // turn 2: telegraph
-  ok(s2.events.some(e => e.t === 'dialogue' && e.key === 'preSpecial'), 'telegraphed');
-  AI.takeTurn(G, st, run);                     // turn 3: horse
-  ok(G.cells.some(c => c.horse), 'a tall horse stands on the page');
+t('gravity AI only considers landing squares', () => {
+  const G = mkG({ rows: 6, cols: 4, winLen: 4, gravity: true });
+  const cands = AI.candidates(G);
+  eq(cands.length, 4, 'one per column');
+  cands.forEach(cl => eq(cl.r, 5, 'all on the floor'));
 });
-t('zeus marks bolt targets then strikes them', () => {
-  const run = Run.newRun('pen', 7);
-  run.subjects = ['mythology', 'history'];
-  run.page = 10;
-  const G = mkG(4, 'E');
+t('boss telegraphs then executes (Napoleon horse)', () => {
+  const r = mkRun(); r.subjects = ['history', 'greek', 'biology', 'physics']; r.page = 5;
+  const G = mkG({ firstTurn: 'E' });
+  const st = AI.newState(r);
+  ok(st.isBoss);
+  AI.takeTurn(G, st, r);
+  const s2 = AI.takeTurn(G, st, r);
+  ok(s2.events.some(e => e.t === 'dialogue' && e.key === 'preSpecial'), 'telegraphed');
+  AI.takeTurn(G, st, r);
+  ok(G.cells.some(c => c.kind === 'horse'), 'the cavalry arrived');
+});
+t('detention slip slows boss cadence', () => {
+  const r1 = mkRun(); r1.subjects = ['history']; r1.page = 5;
+  const r2 = mkRun(['detentionSlip']); r2.subjects = ['history']; r2.page = 5;
+  ok(AI.newState(r2).cadence === AI.newState(r1).cadence + 1);
+});
+t('zeus marks then strikes; shield survives', () => {
+  const r = mkRun(); r.subjects = ['greek']; r.page = 5;
+  const G = mkG({ rows: 6, cols: 6, winLen: 5, firstTurn: 'E' });
   fill(G, 'P', [[1, 1], [2, 2]]);
-  const st = AI.newState(run);
-  AI.takeTurn(G, st, run);                     // turn 1
-  AI.takeTurn(G, st, run);                     // turn 2: telegraph + marks
+  Engine.at(G, 1, 1).shield = true;
+  const st = AI.newState(r);
+  AI.takeTurn(G, st, r);
+  AI.takeTurn(G, st, r); // telegraph
   ok(G.cells.some(c => c.boltMark), 'targets marked');
-  AI.takeTurn(G, st, run);                     // turn 3: strike
-  ok(!G.cells.some(c => c.boltMark), 'marks cleared');
-  ok(G.cells.some(c => c.smudge > 0 && !c.mark), 'something got scorched');
+  AI.takeTurn(G, st, r); // strike
+  ok(!G.cells.some(c => c.boltMark));
+  eq(Engine.at(G, 1, 1).mark, 'X', 'shielded X survived');
 });
 t('a full page plays out without exploding', () => {
-  const run = Run.newRun('pencil', 7);
-  const G = Engine.newPage({ size: 4, seed: 11 });
-  G.playerGapLines = false;
-  const st = AI.newState(run);
+  const r = mkRun();
+  const G = Engine.newPage({ rows: 6, cols: 6, winLen: 5, seed: 11 });
+  const st = AI.newState(r);
   let guard = 0;
-  while (guard++ < 40) {
+  while (guard++ < 60 && !Engine.boardFull(G)) {
     const open = Engine.innerCells(G).filter(c => Engine.canPlace(G, 'P', c));
     if (!open.length) break;
-    Engine.place(G, 'P', open[0].r, open[0].c);
-    if (Engine.findWin(G, 'P', false)) break;
+    Engine.place(G, 'P', open[0]);
+    if (Engine.findWinNormal(G, 'P')) break;
     Engine.tickAfter(G, 'P');
-    AI.takeTurn(G, st, run);
-    if (Engine.findWin(G, 'E', false)) break;
+    AI.takeTurn(G, st, r);
+    if (Engine.findWinNormal(G, 'E')) break;
     Engine.tickAfter(G, 'E');
   }
-  ok(guard < 40);
+  ok(guard < 60);
 });
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed\n');

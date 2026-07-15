@@ -14,28 +14,26 @@
 <body>
 <div id="app">
 
-  <!-- ============ TITLE / UTENSIL PICK ============ -->
+  <!-- ============ TITLE ============ -->
   <section class="screen active" id="screen-title">
     <div class="title-page">
       <div class="title-doodles">✗ ○ ✗<br>○ ✗ ○</div>
       <h1 class="logo">BLEED<span>THROUGH</span></h1>
-      <p class="tagline">a school-day tic-tac-toe roguelike.<br>every class is a notebook. every notebook ends in a boss.<br>candy is your life. spend it wisely. in a bathroom.</p>
-      <p class="pick-label">— choose your writing utensil —</p>
-      <div class="utensil-row">
-        <div class="utensil-pick" data-u="pencil">
-          <div class="u-icon">✏️</div>
-          <div class="u-name">The Pencil</div>
-          <div class="u-text">Each turn: draw an X <b>or</b> erase an O (leaves a 2-turn smudge).</div>
-          <div class="u-flavor">Flexible. Forgiving. A little smudgy.</div>
-        </div>
-        <div class="utensil-pick" data-u="pen">
-          <div class="u-icon">🖋</div>
-          <div class="u-name">The Pen</div>
-          <div class="u-text">Draw X's only — but when you win a page, your final X <b>bleeds through</b> to the next one.</div>
-          <div class="u-flavor">Permanent. Confident. No takebacks.</div>
-        </div>
-      </div>
-      <p class="title-credit">prototype 0.2 · the school day</p>
+      <p class="tagline">a school-day tic-tac-toe roguelike.<br>
+        collect trinkets. stack trinkets. become a problem.<br>
+        candy is your life — spend it wisely, in a bathroom.</p>
+      <p class="title-tip">each class is a 5-page notebook · win a page, gain a trinket ·<br>
+        page 5 is the boss · there is no cap · there is only chaos</p>
+      <button class="btn big" id="btn-new-run">▶ first period</button>
+      <p class="title-credit">prototype 0.3 · the trinket engine</p>
+    </div>
+  </section>
+
+  <!-- ============ TRINKET PICK ============ -->
+  <section class="screen" id="screen-pick">
+    <div class="cover-page">
+      <h2 id="pick-title" class="reward-title"></h2>
+      <div id="pick-cards"></div>
     </div>
   </section>
 
@@ -48,8 +46,14 @@
       <div id="cover-vs" class="cover-vs"></div>
       <p id="cover-dialogue" class="cover-dialogue"></p>
       <div class="candy-row"></div>
+      <div id="seating-row" class="seating-row">
+        <span class="seat-label">🪑 seating chart — first:</span>
+        <button class="seat-btn" data-s="P">me</button>
+        <button class="seat-btn" data-s="E">them</button>
+      </div>
       <button class="btn big" id="btn-start-page">▶ turn the page</button>
       <button class="btn" id="btn-bathroom">🚽 “I… gotta go to the bathroom.”</button>
+      <button class="btn" id="btn-fieldtrip">🚌 field trip (skip this page)</button>
     </div>
   </section>
 
@@ -78,10 +82,10 @@
     <footer id="player-panel">
       <div id="turn-hint"></div>
       <div class="panel-row">
-        <div id="utensil-bar"></div>
+        <span class="panel-label">trinkets</span>
         <div class="candy-row"></div>
       </div>
-      <div id="sticker-row"></div>
+      <div id="shelf"></div>
     </footer>
 
     <div id="result-overlay">
@@ -108,21 +112,12 @@
     <div class="stall">
       <div class="stall-graffiti">for a good time, study</div>
       <h2 class="stall-title">🚽 THE STALL</h2>
-      <p class="stall-npc">Sticky-Fingers Eddie</p>
+      <p class="stall-npc">Sticky-Fingers Eddie · trinket dealer</p>
       <p id="eddie-line" class="eddie-line"></p>
       <div id="shop-candy" class="shop-candy"></div>
       <div id="shop-items"></div>
-      <p class="stall-rules">one purchase per visit · one visit per class · never spend your last candy</p>
+      <p class="stall-rules">one purchase per visit · never spend your last candy</p>
       <button class="btn big" id="btn-leave-shop">← back to class</button>
-    </div>
-  </section>
-
-  <!-- ============ REWARD ============ -->
-  <section class="screen" id="screen-reward">
-    <div class="cover-page">
-      <h2 class="reward-title">👑 CLASS DISMISSED</h2>
-      <p id="reward-sub"></p>
-      <div id="reward-cards"></div>
     </div>
   </section>
 
@@ -138,7 +133,7 @@
   <section class="screen" id="screen-victory">
     <div class="cover-page">
       <h2 class="reward-title">🔔 FINAL BELL</h2>
-      <p>You survived every class on the schedule. The hallway empties. Somewhere, Eddie restocks.<br><br><i>More periods coming soon.</i></p>
+      <p>Four subjects mastered. The hallway empties. Eddie salutes from the stall.<br><br><i>More periods coming soon.</i></p>
       <button class="btn big" id="btn-again-2">▶ new school day</button>
     </div>
   </section>
@@ -148,8 +143,8 @@
 
 <script src="js/engine.js"></script>
 <script src="js/subjects.js"></script>
+<script src="js/trinkets.js"></script>
 <script src="js/run.js"></script>
-<script src="js/stickers.js"></script>
 <script src="js/ai.js"></script>
 <script src="js/render.js"></script>
 <script src="js/main.js"></script>
