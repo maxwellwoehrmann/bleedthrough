@@ -133,10 +133,29 @@ var Render = (function () {
       '</g></svg>';
   }
 
+  /* A proper corner spiderweb: spokes fanning from the top-left
+     corner with sagging arc threads strung between them. */
   function svgWeb(i) {
-    return '<svg viewBox="0 0 100 100" class="doodle doodle-web">' +
-      '<path d="M2 2 L 50 50 M50 2 L 50 50 M98 2 L 50 50 M2 50 L 50 50 M98 50 L 50 50" />' +
-      '<path d="M26 14 Q 34 26 26 38 M50 20 Q 58 30 66 22 M20 34 Q 32 42 30 54" /></svg>';
+    var angs = [4, 26, 48, 68, 86].map(function (a) { return a * Math.PI / 180; });
+    var s = '<svg viewBox="0 0 100 100" class="doodle doodle-web">';
+    angs.forEach(function (a, k) {
+      var len = 96 * (1 + jit(i, 81 + k, 0.06));
+      s += '<path d="M3 3 L' + (3 + len * Math.cos(a)).toFixed(1) + ' ' + (3 + len * Math.sin(a)).toFixed(1) + '"/>';
+    });
+    [26, 50, 74, 95].forEach(function (rad, ring) {
+      var d = '';
+      for (var k = 0; k < angs.length - 1; k++) {
+        var a1 = angs[k], a2 = angs[k + 1];
+        var x1 = 3 + rad * Math.cos(a1), y1 = 3 + rad * Math.sin(a1);
+        var x2 = 3 + rad * Math.cos(a2), y2 = 3 + rad * Math.sin(a2);
+        var am = (a1 + a2) / 2, sag = rad * 0.86; // threads sag toward the corner
+        var xm = 3 + sag * Math.cos(am), ym = 3 + sag * Math.sin(am);
+        d += (k === 0 ? 'M' + x1.toFixed(1) + ' ' + y1.toFixed(1) : '') +
+          ' Q ' + xm.toFixed(1) + ' ' + ym.toFixed(1) + ' ' + x2.toFixed(1) + ' ' + y2.toFixed(1);
+      }
+      s += '<path d="' + d + '"/>';
+    });
+    return s + '</svg>';
   }
 
   function cellContent(G, cell, i) {
@@ -192,7 +211,10 @@ var Render = (function () {
     board.style.setProperty('--nr', G.rows);
     var ar = (G.cols + 1.1) / (G.rows + 1.1);
     board.style.aspectRatio = (G.cols + 1.1) + ' / ' + (G.rows + 1.1);
-    $('#board-wrap').style.maxWidth = 'min(100%, calc(56dvh * ' + ar.toFixed(3) + '))';
+    // fit the whole board between header and shelf: budget the real
+    // viewport minus the match chrome (~350px), never below 160px tall
+    $('#board-wrap').style.maxWidth =
+      'min(100%, calc(max(160px, 100dvh - 350px) * ' + ar.toFixed(3) + '))';
 
     var html = gridSVG(G);
 

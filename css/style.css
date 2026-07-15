@@ -184,11 +184,12 @@ body {
 
 #board-wrap { position: relative; max-width: min(100%, 58dvh); margin: 0 auto; }
 #board {
-  --n: 4;
+  --nc: 4;
+  --nr: 4;
   position: relative;
   display: grid;
-  grid-template-columns: .55fr repeat(var(--n), 1fr) .55fr;
-  grid-template-rows: .55fr repeat(var(--n), 1fr) .55fr;
+  grid-template-columns: .55fr repeat(var(--nc), 1fr) .55fr;
+  grid-template-rows: .55fr repeat(var(--nr), 1fr) .55fr;
   aspect-ratio: 1;
 }
 #board-frame {

@@ -17,12 +17,14 @@ var AI = (function () {
       turn: 0,
       pendingSpecial: false,
       cadence: subj.gimmick.boss.cadence + Trinkets.total(run, 'detentionSlip', 'slow'),
+      // graded Study Guide: the student fumbles more when watched
+      nervous: Trinkets.has(run, 'studyGuide') ? 0.10 * Trinkets.grade(run, 'studyGuide') : 0,
     };
   }
 
   function mistakeChance(st) {
-    if (st.isBoss) return 0;
-    return Math.max(0.08, 0.32 - 0.06 * (st.page - 1));
+    var base = st.isBoss ? 0 : Math.max(0.08, 0.32 - 0.06 * (st.page - 1));
+    return Math.min(0.95, base + (st.nervous || 0));
   }
 
   /* Legal single-cell moves. Gravity: one landing per column. */
@@ -44,8 +46,8 @@ var AI = (function () {
     for (var i = 0; i < cands.length; i++) {
       cands[i].mark = mark;
       var win = Engine.findWinNormal(G, who) ||
-        (who === 'P' && G.playerSkipping ? Engine.findWinSkipping(G, who) : null) ||
-        (who === 'P' && G.playerConnect ? Engine.findWinConnect(G, who) : null);
+        (who === 'P' && G.playerSkipping ? Engine.findWinSkipping(G, who, G.skipOpts) : null) ||
+        (who === 'P' && G.playerConnect ? Engine.findWinConnect(G, who, G.connectOpts) : null);
       cands[i].mark = null;
       if (win) return cands[i];
     }

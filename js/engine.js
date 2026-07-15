@@ -221,19 +221,23 @@ var Engine = (function () {
     return null;
   }
 
-  /* Skipping Stone: span of winLen where ends are yours, every square
-     is yours-or-empty, and no two empties touch. X_X_X wins on 5. */
-  function findWinSkipping(G, who) {
+  /* Skipping Stone: span of winLen where ends are yours and gaps sit
+     between your marks. X_X_X wins on 5. Grade options:
+     overTorn (B): gaps may be torn squares; wideGaps (A): gaps may be
+     two squares wide; overEnemy (A+): gaps may sit on enemy marks. */
+  function findWinSkipping(G, who, opts) {
+    opts = opts || {};
+    var maxGapRun = opts.wideGaps ? 2 : 1;
     for (var r = -1; r <= G.rows; r++) for (var c = -1; c <= G.cols; c++) {
       for (var d = 0; d < LINE_DIRS.length; d++) {
         var dr = LINE_DIRS[d].dr, dc = LINE_DIRS[d].dc;
         if (!inGrid(G, r + dr * (G.winLen - 1), c + dc * (G.winLen - 1))) continue;
-        var cellsArr = [], ok = true, prevEmpty = false, marks = 0;
+        var cellsArr = [], ok = true, gapRun = 0, marks = 0;
         for (var k = 0; k < G.winLen; k++) {
           var cell = at(G, r + dr * k, c + dc * k);
-          if (ownMark(cell, who)) { marks++; prevEmpty = false; cellsArr.push(cell); }
-          else if (!cell.mark && !cell.torn && k > 0 && k < G.winLen - 1 && !prevEmpty) {
-            prevEmpty = true;
+          if (ownMark(cell, who)) { marks++; gapRun = 0; cellsArr.push(cell); }
+          else if (k > 0 && k < G.winLen - 1 && gapRun < maxGapRun && gapQualifies(cell, who, opts)) {
+            gapRun++;
           } else { ok = false; break; }
         }
         if (ok && marks >= 2) return cellsArr;
@@ -242,8 +246,20 @@ var Engine = (function () {
     return null;
   }
 
-  /* Connect-the-Dots: any orthogonally connected blob of winLen+. */
-  function findWinConnect(G, who) {
+  function gapQualifies(cell, who, opts) {
+    if (cell.torn) return !!opts.overTorn;
+    if (!cell.mark) return true;
+    if (opts.overEnemy && !ownMark(cell, who)) return true;
+    return false;
+  }
+
+  /* Connect-the-Dots: any connected blob of winLen+. Grade options:
+     diag (B): diagonal touches connect; reduce (A/A+): blob may be
+     1-2 X's smaller (never below 3). */
+  function findWinConnect(G, who, opts) {
+    opts = opts || {};
+    var dirs = opts.diag ? ORTHO.concat(DIAG) : ORTHO;
+    var need = Math.max(3, G.winLen - (opts.reduce || 0));
     var seen = {};
     var all = G.cells.filter(function (cl) { return ownMark(cl, who); });
     for (var i = 0; i < all.length; i++) {
@@ -254,7 +270,7 @@ var Engine = (function () {
       while (queue.length) {
         var cl = queue.pop();
         comp.push(cl);
-        ORTHO.forEach(function (d) {
+        dirs.forEach(function (d) {
           var rr = cl.r + d[0], cc = cl.c + d[1];
           if (!inGrid(G, rr, cc)) return;
           var n = at(G, rr, cc);
@@ -262,7 +278,10 @@ var Engine = (function () {
           if (!seen[nk] && ownMark(n, who)) { seen[nk] = true; queue.push(n); }
         });
       }
-      if (comp.length >= G.winLen) return comp;
+      if (comp.length >= need) {
+        comp.sort(function (a, b) { return (a.r - b.r) || (a.c - b.c); });
+        return comp;
+      }
     }
     return null;
   }
@@ -296,9 +315,11 @@ var Engine = (function () {
     return comps.filter(function (cp) { return cp.length >= minSize; }).length >= 2;
   }
 
-  /* Fountain Pen: any pair of own marks exactly 2 apart (8 dirs) with a
-     clean empty middle -> fill it. Loops until stable (capped). */
-  function penFills(G, who) {
+  /* Fountain Pen: pairs of own marks exactly `dist` apart (8 dirs) with
+     ALL squares between clean and empty -> fill them. Grades extend the
+     reach (C: dist 2, B: 3, A: 4, A+: 5). Loops until stable (capped). */
+  function penFills(G, who, reach) {
+    reach = reach || 2;
     var filled = [], guard = 0;
     var changed = true;
     while (changed && guard++ < 20) {
@@ -307,16 +328,24 @@ var Engine = (function () {
         var a = at(G, r, c);
         if (!ownMark(a, who)) continue;
         for (var d = 0; d < ALL8.length; d++) {
-          var r2 = r + ALL8[d][0] * 2, c2 = c + ALL8[d][1] * 2;
-          if (!inGrid(G, r2, c2)) continue;
-          var b = at(G, r2, c2);
-          if (!ownMark(b, who)) continue;
-          var mr = r + ALL8[d][0], mc = c + ALL8[d][1];
-          var mid = at(G, mr, mc);
-          if (mid.margin || mid.mark || mid.torn || mid.web > 0) continue;
-          place(G, who, mid);
-          filled.push(mid);
-          changed = true;
+          for (var dist = 2; dist <= reach; dist++) {
+            var r2 = r + ALL8[d][0] * dist, c2 = c + ALL8[d][1] * dist;
+            if (!inGrid(G, r2, c2)) break;
+            var b = at(G, r2, c2);
+            if (!ownMark(b, who)) continue;
+            var mids = [], clean = true;
+            for (var m = 1; m < dist; m++) {
+              var mid = at(G, r + ALL8[d][0] * m, c + ALL8[d][1] * m);
+              if (mid.margin || mid.mark || mid.torn || mid.web > 0) { clean = false; break; }
+              mids.push(mid);
+            }
+            if (!clean) continue;
+            mids.forEach(function (mid) {
+              place(G, who, mid);
+              filled.push(mid);
+            });
+            changed = true;
+          }
         }
       }
     }

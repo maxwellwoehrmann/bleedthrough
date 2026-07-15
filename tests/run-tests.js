@@ -243,12 +243,8 @@ t('grades improve every field, direction-aware', () => {
   eq(Trinkets.val(r, 'stamp', 'nth'), 2, 'every-3rd -> every-2nd');
   eq(Trinkets.val(r, 'stamp', 'size'), 3, '2x2 -> 3x3');
 });
-t('gradeable: numeric trinkets only', () => {
-  ok(Trinkets.gradeable('apple'));
-  ok(Trinkets.gradeable('fork'));
-  ok(!Trinkets.gradeable('fountainPen'));
-  ok(!Trinkets.gradeable('mathQuiz'));
-  ok(!Trinkets.gradeable('connectDots'));
+t('every trinket is gradeable (numeric or hand-authored track)', () => {
+  Object.keys(Trinkets.DB).forEach(id => ok(Trinkets.gradeable(id), id));
 });
 t('grade caps at A+', () => {
   const r = mkRun(['apple']);
@@ -292,6 +288,103 @@ t('flawless tracking: losses count and reset per notebook', () => {
   eq(r.lossesThisNotebook, 1);
   Run.nextLevel(r);
   eq(r.lossesThisNotebook, 0);
+});
+
+console.log('\n-- phase 2 grade effects --');
+t('numberless trinkets with grade tracks are gradeable', () => {
+  ['fountainPen', 'mirrorTape', 'cheatSheet', 'studyGuide', 'seatingChart',
+   'skippingStone', 'connectDots', 'mathQuiz', 'mathTest'].forEach(id => {
+    ok(Trinkets.gradeable(id), id);
+  });
+});
+t('graded Math Quiz applies extra steps', () => {
+  const r = mkRun(['apple', 'mathQuiz']);
+  eq(Trinkets.val(r, 'apple', 'candy'), 2);
+  Trinkets.setGrade(r, 'mathQuiz', 2);          // A: +3 per copy
+  eq(Trinkets.val(r, 'apple', 'candy'), 4);
+});
+t('graded Math Test doubles more', () => {
+  const r = mkRun(['apple', 'mathTest']);
+  eq(Trinkets.val(r, 'apple', 'candy'), 2);
+  Trinkets.setGrade(r, 'mathTest', 1);          // B: x4
+  eq(Trinkets.val(r, 'apple', 'candy'), 4);
+});
+t('Fountain Pen reach: B bridges 2-square gaps', () => {
+  const G = mkG({ rows: 5, cols: 7, winLen: 5 });
+  fill(G, 'P', [[1, 0], [1, 3]]);               // 2 empties between
+  eq(Engine.penFills(G, 'P', 2).length, 0, 'C cannot');
+  eq(Engine.penFills(G, 'P', 3).length, 2, 'B fills both middles');
+  eq(Engine.at(G, 1, 1).mark, 'X');
+  eq(Engine.at(G, 1, 2).mark, 'X');
+});
+t('Skipping grades: torn gaps (B), wide gaps (A), enemy gaps (A+)', () => {
+  const G = mkG({ rows: 5, cols: 5, winLen: 5 });
+  fill(G, 'P', [[2, 0], [2, 2], [2, 4]]);
+  Engine.tear(G, Engine.at(G, 2, 1));
+  ok(!Engine.findWinSkipping(G, 'P', {}), 'torn gap blocks at C');
+  ok(Engine.findWinSkipping(G, 'P', { overTorn: true }), 'B skips the tear');
+
+  const G2 = mkG({ rows: 5, cols: 5, winLen: 5 });
+  fill(G2, 'P', [[1, 0], [1, 3], [1, 4]]);      // X _ _ X X
+  ok(!Engine.findWinSkipping(G2, 'P', {}), 'double gap blocks at C');
+  ok(Engine.findWinSkipping(G2, 'P', { wideGaps: true }), 'A allows it');
+
+  const G3 = mkG({ rows: 5, cols: 5, winLen: 5 });
+  fill(G3, 'P', [[3, 0], [3, 2], [3, 4]]);
+  fill(G3, 'E', [[3, 1]]);
+  ok(!Engine.findWinSkipping(G3, 'P', {}), 'enemy in gap blocks at C');
+  ok(Engine.findWinSkipping(G3, 'P', { overEnemy: true }), 'A+ skips right over the O');
+});
+t('Connect grades: diagonal joins (B), smaller blob (A)', () => {
+  const G = mkG({ rows: 4, cols: 4, winLen: 4 });
+  fill(G, 'P', [[0, 0], [1, 1], [2, 2], [3, 3]]); // diagonal chain — not orth-connected
+  ok(!Engine.findWinConnect(G, 'P', {}), 'not connected at C');
+  ok(Engine.findWinConnect(G, 'P', { diag: true }), 'B connects diagonals');
+
+  const G2 = mkG({ rows: 4, cols: 4, winLen: 4 });
+  fill(G2, 'P', [[0, 0], [1, 0], [1, 1]]);        // blob of 3
+  ok(!Engine.findWinConnect(G2, 'P', {}));
+  ok(Engine.findWinConnect(G2, 'P', { reduce: 1 }), 'A needs one fewer');
+});
+t('Study Guide grades make the student (and boss) nervous', () => {
+  const r1 = mkRun(['studyGuide']);
+  const r2 = mkRun(['studyGuide']);
+  Trinkets.setGrade(r2, 'studyGuide', 2);
+  r1.page = 5; r2.page = 5;
+  const st1 = AI.newState(r1), st2 = AI.newState(r2);
+  eq(AI.mistakeChance(st1), 0, 'boss unaffected at C');
+  ok(Math.abs(AI.mistakeChance(st2) - 0.2) < 1e-9, 'boss fumbles 20% at A');
+});
+
+console.log('\n-- bug regressions --');
+t('margin X completes a gapped line (skip + compass combo)', () => {
+  const G = mkG({ rows: 4, cols: 4, winLen: 4 });
+  fill(G, 'P', [[1, 1], [1, 2]]);
+  G.marginUnlocks = 1;
+  Engine.place(G, 'P', Engine.at(G, 1, -1));      // X[m] _ X X
+  ok(Engine.findWinSkipping(G, 'P', {}), 'combo works');
+});
+t('gravity landing falls from the top, not under shelves', () => {
+  const G = mkG({ rows: 6, cols: 4, winLen: 4, gravity: true });
+  Engine.tear(G, Engine.at(G, 3, 1));
+  eq(Engine.landing(G, 'P', 1).r, 2, 'rests ON the shelf');
+  Engine.tear(G, Engine.at(G, 0, 2));
+  eq(Engine.landing(G, 'P', 2), null, 'column sealed at the top is dead');
+});
+t('movesAvailable false when only pockets under tears remain', () => {
+  const G = mkG({ rows: 3, cols: 2, winLen: 3, gravity: true });
+  Engine.tear(G, Engine.at(G, 0, 0));
+  Engine.tear(G, Engine.at(G, 0, 1));
+  ok(!Engine.movesAvailable(G, 'P'), 'no landings anywhere');
+  ok(!Engine.boardFull(G), 'yet the board is not "full" — draw must use moves');
+});
+t('connect win line comes back sorted for a sane circle', () => {
+  const G = mkG({ rows: 4, cols: 4, winLen: 4 });
+  fill(G, 'P', [[2, 1], [0, 0], [1, 0], [1, 1]]);
+  const comp = Engine.findWinConnect(G, 'P', {});
+  ok(comp);
+  eq(comp[0].r, 0);
+  eq(comp[comp.length - 1].r, 2);
 });
 
 console.log('\n-- run & candy --');

@@ -89,10 +89,23 @@ Four ways to grade up:
 4. **Upgrader trinkets**: 🎓 **Tutor** (rare — new trinkets arrive a grade higher,
    stacks) and 🖍 **Red Pen** (mythical — grades a random trinket up every notebook).
 
+**Phase 2 — every numberless trinket has a hand-authored grade track** (shown as
+★ lines on its card as you earn them):
+
+| trinket | B | A | A+ |
+|---|---|---|---|
+| Fountain Pen | bridges 2-square gaps | 3-square | 4-square |
+| Mirror Tape | first 2 placements mirror | first 3 | first 4 |
+| Cheat Sheet | 2 free starting X's | 3 | 4 |
+| Study Guide | student fumbles +10% | +20% (bosses too) | +30% |
+| Seating Chart | conceding first move: +1 X on turn 1 | turns 1–2 | turns 1–3 |
+| Skipping Stone | gaps may sit on tears | gaps two squares wide | gaps on ENEMY marks |
+| Connect-the-Dots | diagonals connect | blob needs 1 fewer X | 2 fewer |
+| Math Quiz | improves numbers by 2 | by 3 | by 4 |
+| Math Test | doubles twice (×4) | ×8 | ×16 |
+
 ## Roadmap
 
-- Phase-2 grades: hand-authored grade effects for numberless trinkets
-  (Mirror Tape A mirrors two placements; Fountain Pen A fills gap-of-3 middles…).
 - More subjects (Math, Gym, Chemistry, Lunch), more trinkets (goal: 60+).
 - Sound (pencil scratch, bell, toilet flush, thunk of apple).
 - Run stats & seed sharing; iPhone wrap (Capacitor/PWA).

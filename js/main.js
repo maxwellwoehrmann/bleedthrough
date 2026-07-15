@@ -116,8 +116,16 @@
       rows: dims.rows, cols: dims.cols, winLen: dims.winLen,
       gravity: dims.gravity, rng: r.rng,
     });
+    // win modes + their letter-grade options
     G.playerSkipping = thas('skippingStone');
+    var gSkip = Trinkets.grade(r, 'skippingStone');
+    G.skipOpts = { overTorn: gSkip >= 1, wideGaps: gSkip >= 2, overEnemy: gSkip >= 3 };
     G.playerConnect = thas('connectDots');
+    var gDots = Trinkets.grade(r, 'connectDots');
+    G.connectOpts = { diag: gDots >= 1, reduce: Math.max(0, gDots - 1) };
+    G.penReach = 2 + Trinkets.grade(r, 'fountainPen');
+    G.mirrorsLeft = thas('mirrorTape') ? 1 + Trinkets.grade(r, 'mirrorTape') : 0;
+    G.playerTurnNum = 0;
     App.G = G;
     App.st = AI.newState(r);
     App.ui = freshUi();
@@ -128,7 +136,8 @@
     if (allowance) { r.candy += allowance; Render.toast('💵 Allowance: +' + allowance + ' candy'); }
     G.marginUnlocks = tcount('compass') * tval('compass', 'uses');
 
-    for (var cs = 0; cs < tcount('cheatSheet'); cs++) {
+    var sheetXs = tcount('cheatSheet') * (1 + Trinkets.grade(r, 'cheatSheet'));
+    for (var cs = 0; cs < sheetXs; cs++) {
       var center = nearestFree(G, Math.floor((G.rows - 1) / 2), Math.floor((G.cols - 1) / 2));
       if (center) placePlayerX(center, {});
     }
@@ -147,6 +156,7 @@
 
     var first = thas('seatingChart') ? (App.goFirstChoice || 'P') : (Run.isBossPage(r) ? 'E' : 'P');
     G.turn = first;
+    G.enemyFirst = first === 'E';
 
     Render.showScreen('screen-match');
     $('#result-overlay').classList.remove('show');
@@ -180,9 +190,17 @@
 
   // ================= player turn =================
   function playerTurnStart() {
-    var ui = App.ui;
+    var G = App.G, ui = App.ui, r = run();
+    if (G.over) return;
+    if (!Engine.movesAvailable(G, 'P')) return pageOver('draw', null);
+    G.playerTurnNum++;
     ui.busy = false;
     ui.placesLeft = 1 + tcount('extraCredit') * (tval('extraCredit', 'places') - 1);
+    // graded Seating Chart: conceding first move earns early extra X's
+    if (G.enemyFirst && thas('seatingChart') && Trinkets.grade(r, 'seatingChart') >= G.playerTurnNum) {
+      ui.placesLeft += 1;
+      Render.toast('🪑 Seating Chart: +1 placement this turn.');
+    }
     ui.armed = null; ui.magnetSrc = -1; ui.highlight = new Set();
     updatePeek();
     redraw();
@@ -237,8 +255,8 @@
   function checkPlayerWin() {
     var G = App.G;
     var line = Engine.findWinNormal(G, 'P') ||
-      (G.playerSkipping ? Engine.findWinSkipping(G, 'P') : null) ||
-      (G.playerConnect ? Engine.findWinConnect(G, 'P') : null);
+      (G.playerSkipping ? Engine.findWinSkipping(G, 'P', G.skipOpts) : null) ||
+      (G.playerConnect ? Engine.findWinConnect(G, 'P', G.connectOpts) : null);
     if (line) { pageOver('win', line); return true; }
     return false;
   }
@@ -319,11 +337,12 @@
       Render.drawCandy(r);
     }
 
-    G.manualCount++;
+    // margin taps don't advance the Stamp counter (no wasted blocks)
+    if (!target.margin) G.manualCount++;
     var placedCells = [];
 
     // Stamp: every Nth manual placement becomes a size×size block
-    var isStamp = thas('stamp') && G.manualCount % tval('stamp', 'nth') === 0;
+    var isStamp = thas('stamp') && !target.margin && G.manualCount % tval('stamp', 'nth') === 0;
     if (isStamp && !target.margin) {
       var size = Math.min(tval('stamp', 'size'), Math.min(G.rows, G.cols));
       var ar = Math.max(0, Math.min(target.r, G.rows - size));
@@ -366,19 +385,19 @@
       Render.toast('🖊 Pressed hard — it will bleed through to the next page.');
     }
 
-    // Mirror Tape: first manual placement mirrors
-    if (!ui.firstManualDone && thas('mirrorTape') && placedCells.length) {
+    // Mirror Tape: first placement(s) mirror — grades add more
+    if (G.mirrorsLeft > 0 && placedCells.length) {
+      G.mirrorsLeft--;
       var m = placedCells[0];
       if (!m.margin) {
         var mc = Engine.at(G, m.r, G.cols - 1 - m.c);
         if (mc !== m && !mc.mark && !mc.torn && !mc.margin) {
           placePlayerX(mc, {});
           placedCells.push(mc);
-          Render.toast('🪞 Mirror Tape doubles your opening!');
+          Render.toast('🪞 Mirror Tape doubles it!');
         }
       }
     }
-    ui.firstManualDone = true;
 
     // Chain Reaction
     if (thas('chainReaction') && placedCells.length && !placedCells[0].margin) {
@@ -396,7 +415,7 @@
   function afterCreation(placedCells) {
     var G = App.G, ui = App.ui;
     if (thas('fountainPen')) {
-      var fills = Engine.penFills(G, 'P');
+      var fills = Engine.penFills(G, 'P', G.penReach);
       if (fills.length) Render.toast('🖋 Fountain Pen fills ' + fills.length + ' square(s)!');
     }
     Engine.settle(G);
@@ -419,7 +438,9 @@
       if (checkPlayerWin()) return;
     }
     Engine.tickAfter(G, 'P');
-    if (Engine.boardFull(G)) return pageOver('draw', null);
+    // draw when the board is jammed OR the enemy simply cannot move
+    // (tears can strand unreachable pockets, esp. under gravity)
+    if (Engine.boardFull(G) || !Engine.movesAvailable(G, 'E')) return pageOver('draw', null);
     App.ui.busy = true;
     redraw();
     Render.hint(foeName() + ' is thinking…');
@@ -447,7 +468,7 @@
     if (win) { redraw(); return pageOver('loss', win); }
     Engine.tickAfter(G, 'E');
     if (Engine.boardFull(G)) { redraw(); return pageOver('draw', null); }
-    playerTurnStart();
+    playerTurnStart(); // it draws for the player too if they can't move
   }
 
   // ================= trinket shelf =================
@@ -483,6 +504,7 @@
       });
       Engine.settle(G);
       Render.toast('☎️ "...yes, all ' + wiped + ' of them. Yes, even the horse."');
+      if (checkPlayerWin()) return; // clearing O's can complete a gapped win
       updatePeek(); redraw(); hintNow();
       return;
     }
@@ -514,7 +536,10 @@
         [[cl.r - d.dr, cl.c - d.dc], [r2, c2]].forEach(function (p) {
           if (!Engine.inner(G, p[0], p[1])) return;
           var n = Engine.at(G, p[0], p[1]);
-          if (!n.mark && !n.torn && n.web === 0) out.add(Engine.idx(G, p[0], p[1]));
+          if (n.mark || n.torn || n.web > 0) return;
+          // gravity: only offer squares where the X would actually rest
+          if (G.gravity && Engine.landing(G, 'P', n.c) !== n) return;
+          out.add(Engine.idx(G, p[0], p[1]));
         });
       });
     });
@@ -694,7 +719,9 @@
     var sig = s.signature;
     var rarePool = Trinkets.pool('rare', false);
     var alt = rarePool[Math.floor(r.rng() * rarePool.length)];
-    var choices = Trinkets.has(r, sig) ? [alt, Trinkets.pool('mythical', false)[0]] : [sig, alt];
+    var mythPool = Trinkets.pool('mythical', false);
+    var altMyth = mythPool[Math.floor(r.rng() * mythPool.length)];
+    var choices = Trinkets.has(r, sig) ? [alt, altMyth] : [sig, alt];
     var flawless = r.lossesThisNotebook === 0;
     pickTrinkets(s.boss + ' drops something as the bell rings…', choices, function () {
       if (flawless) {

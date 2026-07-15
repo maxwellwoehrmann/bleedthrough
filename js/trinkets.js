@@ -95,6 +95,11 @@ var Trinkets = (function () {
   def({
     id: 'seatingChart', name: 'Seating Chart', rarity: 'uncommon', icon: '🪑',
     values: {},
+    grades: [
+      'B: letting them go first grants +1 X on your 1st turn.',
+      'A: …on your first 2 turns.',
+      'A+: …on your first 3 turns.',
+    ],
     text: function () { return 'You choose who goes first on every page — even against bosses.'; },
     flavor: 'Whoever holds the chart holds the room.',
   });
@@ -121,6 +126,11 @@ var Trinkets = (function () {
   def({
     id: 'studyGuide', name: 'Study Guide', rarity: 'rare', icon: '📖',
     values: {},
+    grades: [
+      'B: being watched, the student fumbles 10% more moves.',
+      'A: …20% more. Even bosses.',
+      'A+: …30% more. They\'re sweating.',
+    ],
     text: function () { return 'Always see the square the student is eyeing for their next move.'; },
     flavor: 'Last year\'s answers. This year\'s edge.',
   });
@@ -133,12 +143,22 @@ var Trinkets = (function () {
   def({
     id: 'fountainPen', name: 'Fountain Pen', rarity: 'rare', icon: '🖋',
     values: {},
+    grades: [
+      'B: also bridges 2-square gaps.',
+      'A: also bridges 3-square gaps.',
+      'A+: also bridges 4-square gaps.',
+    ],
     text: function () { return 'Place an X exactly two squares from another of your X\'s, with a clean empty square between: the middle fills in free. Chains.'; },
     flavor: 'The ink wants to connect. Let it.',
   });
   def({
     id: 'mathQuiz', name: 'Math Quiz', rarity: 'rare', icon: '➕',
     values: {},
+    grades: [
+      'B: improves numbers by 2 instead.',
+      'A: …by 3.',
+      'A+: …by 4.',
+    ],
     text: function () { return 'Every trinket number improves by 1. (Every-3rd becomes every-2nd; +1 becomes +2.)'; },
     flavor: 'Show your work. The work is winning.',
   });
@@ -163,6 +183,11 @@ var Trinkets = (function () {
   def({
     id: 'mirrorTape', name: 'Mirror Tape', rarity: 'rare', icon: '🪞',
     values: {},
+    grades: [
+      'B: your first 2 placements are mirrored.',
+      'A: your first 3.',
+      'A+: your first 4.',
+    ],
     text: function () { return 'Your first X each page is also placed on its mirror-image square.'; },
     flavor: 'The other side of the page is jealous.',
   });
@@ -175,6 +200,11 @@ var Trinkets = (function () {
   def({
     id: 'cheatSheet', name: 'Cheat Sheet', rarity: 'rare', icon: '📝',
     values: {},
+    grades: [
+      'B: start with 2 free X\'s.',
+      'A: start with 3.',
+      'A+: start with 4.',
+    ],
     text: function () { return 'Start every page with a free X in the center.'; },
     flavor: 'Written on your arm in your own handwriting.',
   });
@@ -201,18 +231,33 @@ var Trinkets = (function () {
   def({
     id: 'skippingStone', name: 'Skipping Stone', rarity: 'mythical', icon: '🪨',
     values: {},
+    grades: [
+      'B: gaps may sit on TORN squares.',
+      'A: gaps may be two squares wide.',
+      'A+: gaps may sit on ENEMY marks.',
+    ],
     text: function () { return 'Your lines may skip squares: X_X_X counts as 5-in-a-row. Gaps can\'t touch each other.'; },
     flavor: 'It skips across the page like it skipped across the lake.',
   });
   def({
     id: 'mathTest', name: 'Math Test', rarity: 'mythical', icon: '✖️',
     values: {},
+    grades: [
+      'B: doubles twice (×4).',
+      'A: doubles three times (×8).',
+      'A+: doubles four times (×16).',
+    ],
     text: function () { return 'Every trinket number is doubled. Applies AFTER Math Quiz\'s +1.'; },
     flavor: 'This will be 200% of your grade.',
   });
   def({
     id: 'connectDots', name: 'Connect-the-Dots', rarity: 'mythical', icon: '🔗',
     values: {},
+    grades: [
+      'B: diagonal touches count as connected.',
+      'A: the blob needs 1 fewer X.',
+      'A+: the blob needs 2 fewer X\'s.',
+    ],
     text: function () { return 'Any connected blob of your X\'s that\'s win-length or bigger wins. Any shape. Snakes welcome.'; },
     flavor: 'It was a duck the whole time.',
   });
@@ -270,8 +315,11 @@ var Trinkets = (function () {
   var GRADE_PRICE = [3, 6, 10];          // cost to reach B, A, A+
   var MAX_GRADE = GRADES.length - 1;
 
-  /* Only trinkets with numbers can be graded (phase 1). */
-  function gradeable(id) { return Object.keys(DB[id].values).length > 0; }
+  /* Numeric trinkets grade automatically; numberless ones have
+     hand-authored grade tracks (phase 2). */
+  function gradeable(id) {
+    return Object.keys(DB[id].values).length > 0 || !!DB[id].grades;
+  }
   function grade(run, id) { return (run && run.grades && run.grades[id]) || 0; }
   function gradeName(run, id) { return GRADES[grade(run, id)]; }
   function setGrade(run, id, g) { run.grades[id] = Math.min(MAX_GRADE, g); }
@@ -291,18 +339,20 @@ var Trinkets = (function () {
     return Math.max(1, p);
   }
 
-  /* Value order: base -> grade steps -> Math Quiz +1s -> Math Test x2s.
-     Direction-aware: 'up' numbers grow, 'down' numbers (every-Nth,
-     costs) shrink toward min. */
+  /* Value order: base -> grade steps -> Math Quiz -> Math Test.
+     Quiz applies (1 + its own grade) steps per copy; Test doubles
+     (1 + its own grade) times per copy. Direction-aware: 'up' numbers
+     grow, 'down' numbers (every-Nth, costs) shrink toward min. */
   function val(run, id, field) {
     var def = DB[id].values[field];
     var v = def.base;
     var g = grade(run, id);
     for (var gi = 0; gi < g; gi++) v = def.dir === 'up' ? v + 1 : v - 1;
-    var quiz = count(run, 'mathQuiz'), test = count(run, 'mathTest');
     if (id !== 'mathQuiz' && id !== 'mathTest') {
-      for (var q = 0; q < quiz; q++) v = def.dir === 'up' ? v + 1 : v - 1;
-      for (var t = 0; t < test; t++) v = def.dir === 'up' ? v * 2 : Math.ceil(v / 2);
+      var quizSteps = count(run, 'mathQuiz') * (1 + grade(run, 'mathQuiz'));
+      var testSteps = count(run, 'mathTest') * (1 + grade(run, 'mathTest'));
+      for (var q = 0; q < quizSteps; q++) v = def.dir === 'up' ? v + 1 : v - 1;
+      for (var t = 0; t < testSteps; t++) v = def.dir === 'up' ? v * 2 : Math.ceil(v / 2);
     }
     if (def.min !== undefined) v = Math.max(def.min, v);
     if (def.max !== undefined) v = Math.min(def.max, v);
@@ -317,7 +367,12 @@ var Trinkets = (function () {
   function text(run, id) {
     var t = DB[id], v = {};
     Object.keys(t.values).forEach(function (f) { v[f] = run ? val(run, id, f) : t.values[f].base; });
-    return t.text(v);
+    var out = t.text(v);
+    if (t.grades && run) {
+      var g = grade(run, id);
+      for (var i = 0; i < g; i++) out += ' ★ ' + t.grades[i];
+    }
+    return out;
   }
 
   var RARITY_ORDER = ['common', 'uncommon', 'rare', 'mythical'];
