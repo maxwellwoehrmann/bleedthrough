@@ -10,8 +10,8 @@
 
   var App = {
     run: null, G: null, st: null, ui: null,
-    charges: {},          // page-scoped active uses
-    notebookCharges: {},  // notebook-scoped active uses
+    charges: {},          // page-scoped active uses remaining
+    notebookUsed: {},     // notebook-scoped actives: uses SPENT this notebook
     pendingBleeds: [],    // Ballpoint: coords for the next page
     goFirstChoice: null,  // Seating Chart
   };
@@ -52,19 +52,18 @@
   function startRun() {
     App.run = Run.newRun((Date.now() % 1000000) | 0);
     App.pendingBleeds = [];
-    App.notebookCharges = resetNotebookCharges();
+    App.notebookUsed = {};
     pickTrinkets('Grab one trinket from your locker', Trinkets.uncommonOffer(App.run.rng, 3), function () {
       App.run.candy += Trinkets.total(App.run, 'looseChange', 'candy');
       showCover('intro');
     });
   }
 
-  function resetNotebookCharges() {
-    var out = {};
-    NOTEBOOK_ACTIVES.forEach(function (id) {
-      out[id] = tcount(id) * (Trinkets.DB[id].values.uses ? tval(id, 'uses') : 1);
-    });
-    return out;
+  /* Availability derives from CURRENT trinkets, so mid-notebook
+     pickups of notebook-actives work. */
+  function notebookAvail(id) {
+    var totalUses = tcount(id) * (Trinkets.DB[id].values.uses ? tval(id, 'uses') : 1);
+    return Math.max(0, totalUses - (App.notebookUsed[id] || 0));
   }
 
   function resetPageCharges() {
@@ -72,7 +71,7 @@
     PAGE_ACTIVES.forEach(function (id) {
       out[id] = tcount(id) * (Trinkets.DB[id].values.uses ? tval(id, 'uses') : 1);
     });
-    NOTEBOOK_ACTIVES.forEach(function (id) { out[id] = App.notebookCharges[id]; });
+    NOTEBOOK_ACTIVES.forEach(function (id) { out[id] = notebookAvail(id); });
     return out;
   }
 
@@ -89,7 +88,7 @@
     $('#cover-vs').textContent = 'vs ' + (Run.isBossPage(r) ? s.student + '… probably' : s.student);
     $('#btn-start-page').textContent = Run.isBossPage(r) ? '▶ turn to the final page' : '▶ turn the page';
     $('#btn-bathroom').style.display = r.visitsUsed < Run.bathroomVisitsAllowed(r) ? '' : 'none';
-    var ftShow = thas('fieldTrip') && App.notebookCharges.fieldTrip > 0 && !Run.isBossPage(r);
+    var ftShow = notebookAvail('fieldTrip') > 0 && !Run.isBossPage(r);
     $('#btn-fieldtrip').style.display = ftShow ? '' : 'none';
     var seatShow = thas('seatingChart');
     $('#seating-row').style.display = seatShow ? '' : 'none';
@@ -476,7 +475,8 @@
     if (id === 'beanstalk') { G.rootArmed++; App.charges[id]--; Render.toast('🌱 Your next X will be ROOTED.'); redraw(); hintNow(); return; }
     if (id === 'ballpoint') { G.bleedArmed++; App.charges[id]--; Render.toast('🖊 Pressing hard: your next placement bleeds through.'); redraw(); hintNow(); return; }
     if (id === 'principalsPhone') {
-      App.charges[id]--; App.notebookCharges[id]--;
+      App.charges[id]--;
+      App.notebookUsed[id] = (App.notebookUsed[id] || 0) + 1;
       var wiped = 0;
       G.cells.forEach(function (cl) {
         if (cl.mark === 'O' || cl.mark === 'B') { Engine.destroy(G, cl, true); wiped++; }
@@ -585,7 +585,21 @@
     Render.showScreen('screen-gameover');
   }
 
-  // ================= trinket picks & boss reward =================
+  // ================= trinket picks & grades =================
+  /* Every acquisition goes through here: Tutor boosts new arrivals. */
+  function addTrinket(id) {
+    var r = run();
+    var isNew = Trinkets.count(r, id) === 0;
+    r.trinkets.push(id);
+    if (isNew && Trinkets.gradeable(id)) {
+      var arr = Trinkets.arrivalGrade(r);
+      if (arr > Trinkets.grade(r, id)) {
+        Trinkets.setGrade(r, id, arr);
+        Render.toast('🎓 Tutor: ' + Trinkets.DB[id].name + ' arrives at grade ' + Trinkets.gradeName(r, id) + '!');
+      }
+    }
+  }
+
   function pickTrinkets(title, ids, done) {
     $('#pick-title').textContent = title;
     $('#pick-cards').innerHTML = ids.map(function (id) {
@@ -594,12 +608,85 @@
     $('#pick-cards').querySelectorAll('.trinket-card').forEach(function (el) {
       el.addEventListener('click', function () {
         var id = el.getAttribute('data-t');
-        App.run.trinkets.push(id);
-        Render.toast(Trinkets.DB[id].icon + ' ' + Trinkets.DB[id].name + ' joins the collection! (' + App.run.trinkets.length + ' trinkets)');
+        var r = App.run;
+        // duplicate of something you own? offer the fuse
+        if (Trinkets.count(r, id) > 0 && Trinkets.gradeable(id) && Trinkets.grade(r, id) < Trinkets.MAX_GRADE) {
+          return showFuseChoice(id, done);
+        }
+        addTrinket(id);
+        var n = App.run.trinkets.length;
+        Render.toast(Trinkets.DB[id].icon + ' ' + Trinkets.DB[id].name + ' joins the collection! (' + n + ' trinket' + (n === 1 ? '' : 's') + ')');
         done(id);
       });
     });
     Render.showScreen('screen-pick');
+  }
+
+  /* Take the duplicate copy, or fuse it into a grade-up. */
+  function showFuseChoice(id, done) {
+    var r = run();
+    var g = Trinkets.grade(r, id);
+    var t = Trinkets.DB[id];
+    $('#pick-title').textContent = 'You already have ' + t.name + ' (grade ' + Trinkets.GRADES[g] + ')…';
+    $('#pick-cards').innerHTML = Render.trinketCardHTML(r, id) +
+      '<div class="fuse-row">' +
+      '<button class="btn" id="fuse-stack">📚 take the copy (×' + (Trinkets.count(r, id) + 1) + ')</button>' +
+      '<button class="btn" id="fuse-up">🖍 FUSE: grade ' + Trinkets.GRADES[g] + ' → ' + Trinkets.GRADES[g + 1] + '</button>' +
+      '</div>';
+    $('#fuse-stack').addEventListener('click', function () {
+      addTrinket(id);
+      Render.toast(t.icon + ' Another ' + t.name + '. They stack.');
+      done(id);
+    });
+    $('#fuse-up').addEventListener('click', function () {
+      Trinkets.setGrade(r, id, g + 1);
+      Render.toast('🖍 ' + t.name + ' re-graded: ' + Trinkets.GRADES[g] + ' → ' + Trinkets.GRADES[g + 1] + '!');
+      done(id);
+    });
+  }
+
+  function gradeCandidates() {
+    var r = run(), seen = {}, out = [];
+    r.trinkets.forEach(function (id) {
+      if (seen[id]) return;
+      seen[id] = true;
+      if (Trinkets.gradeable(id) && Trinkets.grade(r, id) < Trinkets.MAX_GRADE) out.push(id);
+    });
+    return out;
+  }
+
+  /* Free grade-up pick (flawless notebook reward). */
+  function pickGradeUp(title, done) {
+    var cands = gradeCandidates();
+    if (!cands.length) return done();
+    $('#pick-title').textContent = title;
+    $('#pick-cards').innerHTML = cands.map(function (id) {
+      return Render.trinketCardHTML(App.run, id);
+    }).join('');
+    $('#pick-cards').querySelectorAll('.trinket-card').forEach(function (el) {
+      el.addEventListener('click', function () {
+        var id = el.getAttribute('data-t');
+        var r = App.run, g = Trinkets.grade(r, id);
+        Trinkets.setGrade(r, id, g + 1);
+        Render.toast('🖍 ' + Trinkets.DB[id].name + ' re-graded: ' + Trinkets.GRADES[g] + ' → ' + Trinkets.gradeName(r, id) + '!');
+        done(id);
+      });
+    });
+    Render.showScreen('screen-pick');
+  }
+
+  function applyRedPen() {
+    var r = run();
+    if (!Trinkets.has(r, 'redPen')) return;
+    var n = Trinkets.total(r, 'redPen', 'grades');
+    for (var k = 0; k < n; k++) {
+      var cands = gradeCandidates().filter(function (id) { return id !== 'redPen'; });
+      if (!cands.length) break;
+      var id = cands[Math.floor(r.rng() * cands.length)];
+      var g = Trinkets.grade(r, id);
+      Trinkets.setGrade(r, id, g + 1);
+      Render.toast('🖍 Red Pen grades ' + Trinkets.DB[id].name + ' up to ' + Trinkets.gradeName(r, id) + '!');
+    }
   }
 
   function showBossReward() {
@@ -608,16 +695,27 @@
     var rarePool = Trinkets.pool('rare', false);
     var alt = rarePool[Math.floor(r.rng() * rarePool.length)];
     var choices = Trinkets.has(r, sig) ? [alt, Trinkets.pool('mythical', false)[0]] : [sig, alt];
+    var flawless = r.lossesThisNotebook === 0;
     pickTrinkets(s.boss + ' drops something as the bell rings…', choices, function () {
-      var next = Run.nextLevel(r);
-      App.pendingBleeds = [];
-      App.notebookCharges = resetNotebookCharges();
-      App.goFirstChoice = null;
-      r._transformed = false;
-      if (next === 'victory') return Render.showScreen('screen-victory');
-      pickTrinkets('New notebook! Grab an uncommon from your locker', Trinkets.uncommonOffer(r.rng, 3), function () {
-        showCover('intro');
-      });
+      if (flawless) {
+        pickGradeUp('FLAWLESS NOTEBOOK! 💯 Grade up any trinket, on the house', afterBossRewards);
+      } else {
+        afterBossRewards();
+      }
+    });
+  }
+
+  function afterBossRewards() {
+    var r = run();
+    applyRedPen();
+    var next = Run.nextLevel(r);
+    App.pendingBleeds = [];
+    App.goFirstChoice = null;
+    r._transformed = false;
+    if (next === 'victory') return Render.showScreen('screen-victory');
+    App.notebookUsed = {};
+    pickTrinkets('New notebook! Grab an uncommon from your locker', Trinkets.uncommonOffer(r.rng, 3), function () {
+      showCover('intro');
     });
   }
 
@@ -648,6 +746,29 @@
     $('#shop-items').querySelectorAll('.shop-item:not(.off)').forEach(function (el) {
       el.addEventListener('click', function () { buyTrinket(el.getAttribute('data-id')); });
     });
+    drawBackroom();
+  }
+
+  /* Eddie's back room: pay candy to re-grade one owned trinket.
+     Counts as your one transaction for the visit. */
+  function drawBackroom() {
+    var r = run();
+    var cands = gradeCandidates();
+    $('#backroom-wrap').style.display = cands.length ? '' : 'none';
+    $('#backroom-items').innerHTML = cands.map(function (id) {
+      var t = Trinkets.DB[id];
+      var g = Trinkets.grade(r, id);
+      var p = Trinkets.upgradePrice(r, id);
+      var can = !r._bought && r.candy - p >= 1;
+      return '<div class="shop-item backroom r-' + t.rarity + (can ? '' : ' off') + '" data-id="' + id + '">' +
+        '<span class="si-icon">' + t.icon + '</span>' +
+        '<span class="si-name">' + t.name + ' <em class="si-grade-arrow">' + Trinkets.GRADES[g] + ' → ' + Trinkets.GRADES[g + 1] + '</em></span>' +
+        '<span class="si-text">' + Trinkets.text(r, id) + '</span>' +
+        '<span class="si-price">' + p + ' 🍬</span></div>';
+    }).join('');
+    $('#backroom-items').querySelectorAll('.shop-item:not(.off)').forEach(function (el) {
+      el.addEventListener('click', function () { buyUpgrade(el.getAttribute('data-id')); });
+    });
   }
 
   function buyTrinket(id) {
@@ -658,10 +779,26 @@
       return;
     }
     r.candy -= p;
-    r.trinkets.push(id);
+    addTrinket(id);
     r._bought = true;
     $('#eddie-line').textContent = Subjects.line(r.rng, Subjects.EDDIE.buy);
     Render.toast(Trinkets.DB[id].icon + ' bought ' + Trinkets.DB[id].name + ' for ' + p + ' 🍬');
+    drawShop();
+  }
+
+  function buyUpgrade(id) {
+    var r = run();
+    var p = Trinkets.upgradePrice(r, id);
+    if (r._bought || p === null || r.candy - p < 1) {
+      $('#eddie-line').textContent = Subjects.line(r.rng, Subjects.EDDIE.broke);
+      return;
+    }
+    r.candy -= p;
+    var g = Trinkets.grade(r, id);
+    Trinkets.setGrade(r, id, g + 1);
+    r._bought = true;
+    $('#eddie-line').textContent = '"Grades? Yeah, I know a guy. The guy is me."';
+    Render.toast('🖍 ' + Trinkets.DB[id].name + ' re-graded: ' + Trinkets.GRADES[g] + ' → ' + Trinkets.gradeName(r, id) + ' for ' + p + ' 🍬');
     drawShop();
   }
 
@@ -692,7 +829,7 @@
       showCover('pageStart');
     });
     $('#btn-fieldtrip').addEventListener('click', function () {
-      App.notebookCharges.fieldTrip--;
+      App.notebookUsed.fieldTrip = (App.notebookUsed.fieldTrip || 0) + 1;
       Render.toast('🚌 Field trip! You skip the page entirely.');
       Run.advancePage(App.run);
       showCover('pageStart');

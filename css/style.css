@@ -504,3 +504,21 @@ body.gravity-page #page { box-shadow: 0 22px 40px rgba(0, 0, 0, .65), 0 2px 6px 
 .grid-frame { fill: none; stroke: var(--graphite-soft); stroke-width: 6; rx: 4; }
 .cell:not(.margin) { box-shadow: none; }
 #board-frame { display: none; }
+
+/* ---------------- letter grades ---------------- */
+.chip-grade {
+  position: absolute; bottom: -6px; left: -6px;
+  font-family: 'Caveat', cursive; font-weight: 700; font-size: 12px;
+  background: var(--paper); color: var(--graphite-soft);
+  border: 1.5px solid var(--graphite-soft); border-radius: 7px;
+  padding: 0 4px; line-height: 1.25;
+}
+.chip-grade.up { color: #fff; background: var(--pen-red); border-color: var(--pen-red); }
+.tk-grade { color: var(--pen-red); font-weight: 700; }
+.fuse-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 12px; width: 100%; }
+.backroom-label { margin-top: 14px; }
+#backroom-items { display: flex; flex-direction: column; gap: 7px; }
+.si-grade-arrow {
+  font-family: 'Caveat', cursive; font-style: normal; font-weight: 700;
+  font-size: 15px; color: var(--pen-red); margin-left: 4px;
+}

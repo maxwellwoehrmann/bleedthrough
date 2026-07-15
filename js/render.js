@@ -294,16 +294,24 @@ var Render = (function () {
         }
       }
       var cnt = seen[id] > 1 ? '<span class="chip-count">×' + seen[id] + '</span>' : '';
-      return '<div class="' + cls.join(' ') + '" data-t="' + id + '" title="' + t.name + ': ' + Trinkets.text(run, id) + '">' +
-        '<span class="chip-icon">' + t.icon + '</span>' + cnt + chargeHtml + '</div>';
+      var gradeHtml = '';
+      if (Trinkets.gradeable(id)) {
+        var g = Trinkets.grade(run, id);
+        gradeHtml = '<span class="chip-grade' + (g > 0 ? ' up' : '') + '">' + Trinkets.GRADES[g] + '</span>';
+      }
+      return '<div class="' + cls.join(' ') + '" data-t="' + id + '" title="' + t.name + ' [' + Trinkets.gradeName(run, id) + ']: ' + Trinkets.text(run, id) + '">' +
+        '<span class="chip-icon">' + t.icon + '</span>' + cnt + chargeHtml + gradeHtml + '</div>';
     }).join('');
     shelf.innerHTML = html || '<span class="shelf-empty">no trinkets yet — win some boards</span>';
   }
 
   function trinketCardHTML(run, id, extra) {
     var t = Trinkets.DB[id];
+    var gradeBit = Trinkets.gradeable(id)
+      ? ' · <span class="tk-grade">grade ' + Trinkets.gradeName(run, id) + '</span>'
+      : '';
     return '<div class="trinket-card r-' + t.rarity + (extra ? ' ' + extra : '') + '" data-t="' + id + '">' +
-      '<div class="tk-rarity">' + t.rarity + '</div>' +
+      '<div class="tk-rarity">' + t.rarity + gradeBit + '</div>' +
       '<div class="tk-icon">' + t.icon + '</div>' +
       '<div class="tk-name">' + t.name + '</div>' +
       '<div class="tk-text">' + Trinkets.text(run, id) + '</div>' +

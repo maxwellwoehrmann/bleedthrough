@@ -38,18 +38,19 @@ Every trinket number is **tagged data with an improvement direction**, so:
 - **Math Test** (mythical): every number doubles, **applied after the Quiz**.
   Quiz + Test turns Stamp into *every placement is a 6×6 block*. This is intentional.
 
-## Trinket catalog (37)
+## Trinket catalog (39)
 
 - **Common (5):** Teacher's Apple, Loose Change, Candy Wrapper, Gum, Sticker Star (every 4th X shielded).
 - **Uncommon (12):** Fork (tear a square), Candycane (candy as indestructible X), Magnet,
   Compass (margin play), Laminator (every 5th X indestructible), Tooth Fairy, Vending Key,
   Piggy Bank, Seating Chart, Field Trip Form, Student ID (−1 prices), **Ballpoint Pen**
   (1×/page your placement bleeds through to the next page — a Stamp block bleeds whole).
-- **Rare (12):** Study Guide (permanent peek), Stamp, Fountain Pen (auto-fills the middle
+- **Rare (13):** Study Guide (permanent peek), Stamp, Fountain Pen (auto-fills the middle
   of gap-2 pairs, chains), Math Quiz, Ruler, Allowance, Detention Slip, Mirror Tape,
-  Juice Box, Cheat Sheet, Coupon Book (half prices).
-- **Mythical (8):** Extra Credit (2 places/turn), Skipping Stone (X_X_X wins),
+  Juice Box, Cheat Sheet, Coupon Book (half prices), Tutor (new trinkets arrive graded).
+- **Mythical (9):** Extra Credit (2 places/turn), Skipping Stone (X_X_X wins),
   Math Test, Connect-the-Dots (any connected blob wins), Principal's Phone (wipe all O's),
+  Red Pen (grades a random trinket up each notebook),
   and the **boss signatures**: Bicorne Hat (History — 2×1 X cavalry), Stolen Thunder
   (Greek — electrified X sprouts diagonals), Beanstalk (Biology — rooted X grows every
   turn), Chain Reaction (Physics — bridging two 3-chains tears the whole column out).
@@ -68,20 +69,30 @@ ahead. Shields/lamination/candy resist destruction. No smudges or erasing in v0.
 
 ---
 
+## Letter grades (v0.35)
+
+Every numeric trinket has a **grade: C → B → A → A+** (per trinket type; duplicates
+share it). Each grade is one improvement step on every number, applied
+**base → grade → Math Quiz +1 → Math Test ×2**, so grades compound with the math
+trinkets. Grades keep commons relevant late — an A+ Teacher's Apple is a 4th-period
+economy engine. Rarity is what a trinket *is*; grade is what you've *made* of it.
+Numberless trinkets (Fountain Pen, Mirror Tape, Connect-the-Dots…) can't be graded
+yet — hand-authored grade effects for those are phase 2.
+
+Four ways to grade up:
+1. **Eddie's back room** (in the stall): pay 3/6/10 🍬 to re-grade one trinket.
+   Counts as your one transaction; Student ID and Coupon Book discounts apply.
+2. **Fuse duplicates**: picking a trinket you already own offers a choice — take
+   the copy (stacks still stack) or fuse it into a grade-up.
+3. **Flawless notebook**: beat the boss without losing a single page that notebook
+   → free grade-up of your choice.
+4. **Upgrader trinkets**: 🎓 **Tutor** (rare — new trinkets arrive a grade higher,
+   stacks) and 🖍 **Red Pen** (mythical — grades a random trinket up every notebook).
+
 ## Roadmap
 
-### 🎫 TICKET: Trinket tiers & upgrading (Hades-style boons) — design, not yet built
-Each trinket gains a **tier track** (base → Silver → Gold, or Lv.1→3): same effect,
-bigger numbers — implemented as a per-copy `tier` that feeds the existing tagged-value
-system before Quiz/Test (order: base → tier → Quiz +1 → Test ×2). Acquisition ideas
-to explore: **Eddie's back room** (pay candy to upgrade one owned trinket), **duplicate
-auto-merge** (picking a third copy fuses into tier-up — Balatro-negative vibes),
-**boss-page stakes** (win the boss page *flawlessly* → free upgrade), and **upgrader
-trinkets** (mythical: "Red Pen — grades one random trinket up a tier each notebook").
-Rarity stays what a trinket *is*; tier is what you've *made* of it. UI: chip gains a
-silver/gold underline + roman numeral. Needs balance pass: tiered every-Nth trinkets
-must clamp (already min 1).
-
+- Phase-2 grades: hand-authored grade effects for numberless trinkets
+  (Mirror Tape A mirrors two placements; Fountain Pen A fills gap-of-3 middles…).
 - More subjects (Math, Gym, Chemistry, Lunch), more trinkets (goal: 60+).
 - Sound (pencil scratch, bell, toilet flush, thunk of apple).
 - Run stats & seed sharing; iPhone wrap (Capacitor/PWA).

@@ -227,6 +227,73 @@ t('Extra Credit: 2 places, x2 with Math Test', () => {
   eq(Trinkets.val(r, 'extraCredit', 'places'), 4);
 });
 
+console.log('\n-- letter grades --');
+t('grade order: base -> grade -> quiz -> test', () => {
+  const r = mkRun(['apple']);
+  Trinkets.setGrade(r, 'apple', 1);              // B
+  eq(Trinkets.val(r, 'apple', 'candy'), 2, 'C base 1, B = 2');
+  r.trinkets.push('mathQuiz');
+  eq(Trinkets.val(r, 'apple', 'candy'), 3, '(1+grade1)+quiz1');
+  r.trinkets.push('mathTest');
+  eq(Trinkets.val(r, 'apple', 'candy'), 6, 'then doubled');
+});
+t('grades improve every field, direction-aware', () => {
+  const r = mkRun(['stamp']);
+  Trinkets.setGrade(r, 'stamp', 1);
+  eq(Trinkets.val(r, 'stamp', 'nth'), 2, 'every-3rd -> every-2nd');
+  eq(Trinkets.val(r, 'stamp', 'size'), 3, '2x2 -> 3x3');
+});
+t('gradeable: numeric trinkets only', () => {
+  ok(Trinkets.gradeable('apple'));
+  ok(Trinkets.gradeable('fork'));
+  ok(!Trinkets.gradeable('fountainPen'));
+  ok(!Trinkets.gradeable('mathQuiz'));
+  ok(!Trinkets.gradeable('connectDots'));
+});
+t('grade caps at A+', () => {
+  const r = mkRun(['apple']);
+  Trinkets.setGrade(r, 'apple', 99);
+  eq(Trinkets.grade(r, 'apple'), 3);
+  eq(Trinkets.gradeName(r, 'apple'), 'A+');
+  eq(Trinkets.upgradePrice(r, 'apple'), null, 'no further upgrades');
+});
+t('upgrade prices: 3/6/10, discounted by Student ID and Coupon Book', () => {
+  const r = mkRun(['apple']);
+  eq(Trinkets.upgradePrice(r, 'apple'), 3);
+  Trinkets.setGrade(r, 'apple', 1);
+  eq(Trinkets.upgradePrice(r, 'apple'), 6);
+  Trinkets.setGrade(r, 'apple', 2);
+  eq(Trinkets.upgradePrice(r, 'apple'), 10);
+  r.trinkets.push('studentId');
+  eq(Trinkets.upgradePrice(r, 'apple'), 9);
+  r.trinkets.push('couponBook');
+  eq(Trinkets.upgradePrice(r, 'apple'), 4, '(10-1)/2 floored');
+});
+t('Tutor: new trinkets arrive graded; stacks; Red Pen has value', () => {
+  const r = mkRun();
+  eq(Trinkets.arrivalGrade(r), 0);
+  r.trinkets.push('tutor');
+  eq(Trinkets.arrivalGrade(r), 1);
+  r.trinkets.push('tutor');
+  eq(Trinkets.arrivalGrade(r), 2);
+  eq(Trinkets.DB.redPen.rarity, 'mythical');
+  eq(Trinkets.DB.tutor.rarity, 'rare');
+  eq(Trinkets.total(mkRun(['redPen']), 'redPen', 'grades'), 1);
+});
+t('graded values flow into charges-style uses (Fork B = 2 tears)', () => {
+  const r = mkRun(['fork']);
+  Trinkets.setGrade(r, 'fork', 1);
+  eq(Trinkets.val(r, 'fork', 'uses'), 2);
+});
+t('flawless tracking: losses count and reset per notebook', () => {
+  const r = mkRun();
+  eq(r.lossesThisNotebook, 0);
+  Run.applyResult(r, 'loss');
+  eq(r.lossesThisNotebook, 1);
+  Run.nextLevel(r);
+  eq(r.lossesThisNotebook, 0);
+});
+
 console.log('\n-- run & candy --');
 t('5-page notebooks, page 5 is boss', () => {
   const r = mkRun();

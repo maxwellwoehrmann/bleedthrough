@@ -29,6 +29,8 @@ var Run = (function () {
       seed: seed, rng: rng,
       candy: STARTING_CANDY,
       trinkets: [],                 // ids, duplicates allowed, NO CAP
+      grades: {},                   // id -> 0..3 (C, B, A, A+), per trinket type
+      lossesThisNotebook: 0,        // flawless-notebook tracking
       level: 1,
       subjects: shuffle(rng, Object.keys(Subjects.ALL)),
       page: 1,
@@ -64,6 +66,7 @@ var Run = (function () {
     if (result === 'draw') d = Trinkets.total(run, 'candyWrapper', 'candy');
     if (result === 'loss') {
       d = -2;
+      run.lossesThisNotebook++;
       if (!run.gumUsed && Trinkets.has(run, 'gum')) {
         d += Trinkets.total(run, 'gum', 'save');
         if (d > 0) d = 0;
@@ -102,6 +105,7 @@ var Run = (function () {
     run.page = 1;
     run.visitsUsed = 0;
     run.gumUsed = false;
+    run.lossesThisNotebook = 0;
     if (run.level > run.subjects.length) { run.won = true; return 'victory'; }
     run.candy += Trinkets.total(run, 'looseChange', 'candy');
     return 'class';

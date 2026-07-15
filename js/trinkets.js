@@ -184,6 +184,12 @@ var Trinkets = (function () {
     text: function (v) { return 'Stall prices are divided by ' + v.div + ' (min 1).'; },
     flavor: 'Expired in 1997. Eddie doesn\'t check.',
   });
+  def({
+    id: 'tutor', name: 'Tutor', rarity: 'rare', icon: '🎓',
+    values: { boost: { base: 1, dir: 'up', min: 0 } },
+    text: function (v) { return 'NEW trinkets you acquire arrive ' + v.boost + ' letter grade(s) higher.'; },
+    flavor: 'Paid in candy. Worth every piece.',
+  });
 
   // ------------------------------------------------ MYTHICAL
   def({
@@ -240,6 +246,12 @@ var Trinkets = (function () {
     text: function (v) { return 'When your X connects two chains of ' + v.size + '+ of your X\'s, the entire column tears out of the page. Everything in it. Yours too.'; },
     flavor: 'E = mc… whatever. BOOM.',
   });
+  def({
+    id: 'redPen', name: 'Red Pen', rarity: 'mythical', icon: '🖍',
+    values: { grades: { base: 1, dir: 'up', min: 0 } },
+    text: function (v) { return 'At the end of every notebook, ' + v.grades + ' random trinket(s) get graded up a letter.'; },
+    flavor: 'It only writes in judgment.',
+  });
 
   function nth(n) {
     return n === 1 ? 'single' : n === 2 ? '2nd' : n === 3 ? '3rd' : n + 'th';
@@ -253,12 +265,40 @@ var Trinkets = (function () {
   }
   function has(run, id) { return count(run, id) > 0; }
 
-  /* Math Quiz improves by +1 per copy, then Math Test doubles per copy.
+  // ---------------- letter grades (C -> B -> A -> A+) ----------------
+  var GRADES = ['C', 'B', 'A', 'A+'];
+  var GRADE_PRICE = [3, 6, 10];          // cost to reach B, A, A+
+  var MAX_GRADE = GRADES.length - 1;
+
+  /* Only trinkets with numbers can be graded (phase 1). */
+  function gradeable(id) { return Object.keys(DB[id].values).length > 0; }
+  function grade(run, id) { return (run && run.grades && run.grades[id]) || 0; }
+  function gradeName(run, id) { return GRADES[grade(run, id)]; }
+  function setGrade(run, id, g) { run.grades[id] = Math.min(MAX_GRADE, g); }
+
+  /* Tutor: new trinkets arrive already graded. */
+  function arrivalGrade(run) {
+    if (!has(run, 'tutor')) return 0;
+    return Math.min(MAX_GRADE, total(run, 'tutor', 'boost'));
+  }
+
+  function upgradePrice(run, id) {
+    var g = grade(run, id);
+    if (g >= MAX_GRADE) return null;
+    var p = GRADE_PRICE[g];
+    p -= total(run, 'studentId', 'off');
+    if (has(run, 'couponBook')) p = Math.floor(p / val(run, 'couponBook', 'div'));
+    return Math.max(1, p);
+  }
+
+  /* Value order: base -> grade steps -> Math Quiz +1s -> Math Test x2s.
      Direction-aware: 'up' numbers grow, 'down' numbers (every-Nth,
-     costs, divisors... wait, divisors are 'up') shrink toward min. */
+     costs) shrink toward min. */
   function val(run, id, field) {
     var def = DB[id].values[field];
     var v = def.base;
+    var g = grade(run, id);
+    for (var gi = 0; gi < g; gi++) v = def.dir === 'up' ? v + 1 : v - 1;
     var quiz = count(run, 'mathQuiz'), test = count(run, 'mathTest');
     if (id !== 'mathQuiz' && id !== 'mathTest') {
       for (var q = 0; q < quiz; q++) v = def.dir === 'up' ? v + 1 : v - 1;
@@ -330,7 +370,10 @@ var Trinkets = (function () {
 
   return {
     DB: DB, RARITY_ORDER: RARITY_ORDER, RARITY_PRICE: RARITY_PRICE,
+    GRADES: GRADES, GRADE_PRICE: GRADE_PRICE, MAX_GRADE: MAX_GRADE,
     count: count, has: has, val: val, total: total, text: text,
+    gradeable: gradeable, grade: grade, gradeName: gradeName, setGrade: setGrade,
+    arrivalGrade: arrivalGrade, upgradePrice: upgradePrice,
     pool: pool, rollRarity: rollRarity, offer: offer, uncommonOffer: uncommonOffer, price: price,
   };
 })();
